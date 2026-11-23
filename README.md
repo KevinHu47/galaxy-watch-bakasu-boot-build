@@ -1,6 +1,6 @@
 # Galaxy Watch BakaSU boot 云端编译
 
-在 GitHub Actions 中下载原厂 boot 和三星开源包，按输入顺序合并源码，集成 BakaSU，编译并生成 `boot.img`。**只制作 boot，不生成单独的 vbmeta.img，不打包完整固件，不自动刷机。**
+在 GitHub Actions 中下载原厂 boot 和三星开源包，按输入顺序合并源码，集成 BakaSU，编译并生成 boot 镜像。**只制作 boot，不生成单独的 vbmeta.img，不打包完整固件，不自动刷机。**
 
 不同型号、地区、尺寸、蓝牙/LTE 版本请提供各自匹配的原厂 boot 和源码。构建使用原 boot 内核中提取的完整配置，保留模板头部与三星尾部；型号配置、SoC、内核版本、clang 版本从用户输入的源码与 boot 读取。
 
@@ -188,8 +188,9 @@ gw-boot-<BakaSU commit前12位>-signed或unsigned-<run id>
 
 其中包括：
 
-- `boot.img`：最终镜像。
-- `boot.img.lz4`：最终 `boot.img` 的 LZ4 压缩版，签名或不签名构建都会提供。使用 1 MiB 独立块、内容校验和及原始大小字段；生成后解压核对与 `boot.img` 逐字节一致，两个文件均列入 `SHA256SUMS`。
+- 签名构建提供 `boot.img` 和 `boot.img.lz4`。
+- 不签名构建的镜像仅为 `boot-unsign.img` 和 `boot-unsign.img.lz4`。
+- LZ4 版本使用 1 MiB 独立块、内容校验和及原始大小字段。生成后解压核对与对应镜像逐字节一致，两个文件均列入 `SHA256SUMS`。
 - `Image`、`kernel.config`、`Module.symvers`、`System.map`：编译结果及核查材料。
 - `bakasu.json`、`prepare.json`、`compile.json`、`module-trust.json`、`boot-manifest.json`、`config-check.json`、`source-manifest.json`：来源、完整 BakaSU commit、工具链、配置、原厂模块信任和镜像校验记录。
 - `SHA256SUMS`、`BUILD.txt`：文件哈希与摘要。

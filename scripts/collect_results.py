@@ -8,7 +8,7 @@ import os
 import shutil
 from pathlib import Path
 
-from common import sha256
+from common import sha256, write_json
 
 
 def compress_boot(source: Path, destination: Path) -> None:
@@ -20,7 +20,7 @@ def compress_boot(source: Path, destination: Path) -> None:
         content_checksum=True, block_checksum=False, store_size=True,
     )
     if lz4.frame.decompress(compressed) != original:
-        raise ValueError('boot.img.lz4 does not decompress to the final boot.img')
+        raise ValueError(f'{destination.name} does not decompress to {source.name}')
     destination.write_bytes(compressed)
 
 
@@ -42,15 +42,31 @@ def collect(work: Path, destination: Path, summary: Path | None = None):
     image = work / 'out/arch/arm64/boot/Image'
     if image.is_file():
         shutil.copyfile(image, destination / 'Image')
-    # Boot is placed here only after the packaging step has verified it.
-    if (work / 'boot.img').is_file():
-        shutil.copyfile(work / 'boot.img', destination / 'boot.img')
-        compress_boot(destination / 'boot.img', destination / 'boot.img.lz4')
-    boot_hash = sha256(destination / 'boot.img') if (destination / 'boot.img').exists() else 'not produced'
     bakasu = json.loads((work / 'bakasu.json').read_text()) if (work / 'bakasu.json').exists() else {}
     boot = json.loads((work / 'boot-manifest.json').read_text()) if (work / 'boot-manifest.json').exists() else {}
     signed = boot.get('verification', {}).get('signed')
-    mode = 'signed' if signed else 'unsigned' if signed is False else 'incomplete'
+    source_boot = work / 'boot.img'
+    boot_name = None
+    mode = 'incomplete'
+    if source_boot.is_file() and isinstance(signed, bool):
+        boot_name = 'boot.img' if signed else 'boot-unsign.img'
+        mode = 'signed' if signed else 'unsigned'
+
+    # A reused output directory must not mix images from different modes.
+    for name in ('boot.img', 'boot-unsign.img'):
+        if name != boot_name:
+            (destination / name).unlink(missing_ok=True)
+            (destination / f'{name}.lz4').unlink(missing_ok=True)
+
+    boot_hash = 'not produced'
+    if boot_name is not None:
+        published_boot = destination / boot_name
+        shutil.copyfile(source_boot, published_boot)
+        compress_boot(published_boot, destination / f'{boot_name}.lz4')
+        boot_hash = sha256(published_boot)
+        boot['output'] = boot_name
+        write_json(destination / 'boot-manifest.json', boot)
+
     text = ['# Galaxy Watch BakaSU boot', '',
             f'- BakaSU repository: `{bakasu.get("repository", "not resolved")}`',
             f'- BakaSU commit: `{bakasu.get("commit", "not resolved")}`',
