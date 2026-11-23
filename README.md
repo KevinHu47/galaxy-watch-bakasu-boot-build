@@ -2,7 +2,7 @@
 
 在 GitHub Actions 中下载原厂 boot 和三星开源包，按输入顺序合并源码，集成 BakaSU，编译并生成 `boot.img`。**只制作 boot，不生成单独的 vbmeta.img，不打包完整固件，不自动刷机。**
 
-不同地区、尺寸、蓝牙/LTE 版本请提供各自匹配的原厂 boot 和源码。构建使用原 boot 内核中提取的完整配置，保留模板头部与三星尾部；没有写死 SM-L315F、fresh7ulxx 或某个地区的设备树。SoC、内核版本、clang 版本从用户输入的源码与 boot 读取。
+不同型号、地区、尺寸、蓝牙/LTE 版本请提供各自匹配的原厂 boot 和源码。构建使用原 boot 内核中提取的完整配置，保留模板头部与三星尾部；型号配置、SoC、内核版本、clang 版本从用户输入的源码与 boot 读取。
 
 ## 许可证
 
@@ -79,7 +79,7 @@ $keyBytes = [System.IO.File]::ReadAllBytes((Join-Path ([Environment]::GetFolderP
 Linux / WSL：
 
 ```bash
-base64 -w 0 /path/to/gw-avb-rsa4096.pem
+base64 -w 0 "$HOME/.gw-signing/gw-avb-rsa4096.pem"
 ```
 
 私钥必须是未加密的 PEM RSA-4096 私钥。本地签名与三星生产签名是不同的；签名通过表示镜像内容与该密钥相符。
