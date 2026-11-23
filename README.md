@@ -4,6 +4,10 @@
 
 不同地区、尺寸、蓝牙/LTE 版本请提供各自匹配的原厂 boot 和源码。构建使用原 boot 内核中提取的完整配置，保留模板头部与三星尾部；没有写死 SM-L315F、fresh7ulxx 或某个地区的设备树。SoC、内核版本、clang 版本从用户输入的源码与 boot 读取。
 
+## 许可证
+
+本项目原创构建脚本、测试、工作流和文档采用 [GNU GPL v3](LICENSE)。随仓库提供的 `scripts/avbtool.py` 保留 AOSP 原有 MIT 许可证及版权声明，详见 [第三方许可说明](THIRD_PARTY_NOTICES.md)。构建时下载的三星内核、BakaSU、工具链和其他依赖分别适用其自身许可证。
+
 ## 1. 配置签名密钥
 
 默认构建会使用 `SHA256_RSA4096` 对 **boot 自身**添加 AVB 签名。这里的 AVB 信息位于 boot 内部；不会输出 `vbmeta.img`。
