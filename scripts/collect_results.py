@@ -11,6 +11,19 @@ from pathlib import Path
 from common import sha256
 
 
+def compress_boot(source: Path, destination: Path) -> None:
+    import lz4.frame
+
+    original = source.read_bytes()
+    compressed = lz4.frame.compress(
+        original, block_size=lz4.frame.BLOCKSIZE_MAX1MB, block_linked=False,
+        content_checksum=True, block_checksum=False, store_size=True,
+    )
+    if lz4.frame.decompress(compressed) != original:
+        raise ValueError('boot.img.lz4 does not decompress to the final boot.img')
+    destination.write_bytes(compressed)
+
+
 def collect(work: Path, destination: Path, summary: Path | None = None):
     destination.mkdir(parents=True, exist_ok=True)
     reports = ['source-manifest.json', 'bakasu.json', 'prepare.json', 'config-check.json',
@@ -32,6 +45,7 @@ def collect(work: Path, destination: Path, summary: Path | None = None):
     # Boot is placed here only after the packaging step has verified it.
     if (work / 'boot.img').is_file():
         shutil.copyfile(work / 'boot.img', destination / 'boot.img')
+        compress_boot(destination / 'boot.img', destination / 'boot.img.lz4')
     boot_hash = sha256(destination / 'boot.img') if (destination / 'boot.img').exists() else 'not produced'
     bakasu = json.loads((work / 'bakasu.json').read_text()) if (work / 'bakasu.json').exists() else {}
     boot = json.loads((work / 'boot-manifest.json').read_text()) if (work / 'boot-manifest.json').exists() else {}

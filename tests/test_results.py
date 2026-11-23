@@ -4,8 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import lz4.frame
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from collect_results import collect
+from common import sha256
 
 
 class ResultsTests(unittest.TestCase):
@@ -23,6 +26,8 @@ class ResultsTests(unittest.TestCase):
             self.assertIn('unsigned', (output / 'BUILD.txt').read_text())
             self.assertIn('BUILD.txt', (output / 'SHA256SUMS').read_text())
             self.assertIn('boot.img', (output / 'SHA256SUMS').read_text())
+            self.assertIn('boot.img.lz4', (output / 'SHA256SUMS').read_text())
+            self.assertEqual(lz4.frame.decompress((output / 'boot.img.lz4').read_bytes()), b'boot')
             for path in output.rglob('*'):
                 if path.is_file():
                     self.assertNotIn(b'PRIVATE', path.read_bytes())
@@ -33,6 +38,30 @@ class ResultsTests(unittest.TestCase):
             collect(root / 'absent-work', root / 'dist')
             self.assertIn('incomplete', (root / 'dist/BUILD.txt').read_text())
             self.assertFalse((root / 'dist/boot.img').exists())
+            self.assertFalse((root / 'dist/boot.img.lz4').exists())
+
+    def test_lz4_contains_final_signed_or_unsigned_boot_and_its_hash(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for signed in (True, False):
+                work, output = root / f'work-{signed}', root / f'dist-{signed}'
+                work.mkdir()
+                # Include nonzero content and the final footer/padding to catch
+                # accidentally compressing Image or a pre-signing boot instead.
+                final = bytes(range(256)) * 4096 + (b'AVBf' + bytes(60) if signed else bytes(64))
+                (work / 'boot.img').write_bytes(final)
+                (work / 'boot-manifest.json').write_text(json.dumps({'verification': {'signed': signed}}))
+                collect(work, output)
+                compressed = (output / 'boot.img.lz4').read_bytes()
+                self.assertEqual(lz4.frame.decompress(compressed), final)
+                info = lz4.frame.get_frame_info(compressed)
+                self.assertEqual(info['content_size'], len(final))
+                self.assertTrue(info['content_checksum'])
+                self.assertFalse(info['block_linked'])
+                self.assertFalse(info['block_checksum'])
+                checksums = {name: digest for digest, name in
+                             (line.split('  ', 1) for line in (output / 'SHA256SUMS').read_text().splitlines())}
+                self.assertEqual(checksums['boot.img.lz4'], sha256(output / 'boot.img.lz4'))
 
 
 if __name__ == '__main__':

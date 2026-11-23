@@ -189,6 +189,7 @@ gw-boot-<BakaSU commit前12位>-signed或unsigned-<run id>
 其中包括：
 
 - `boot.img`：最终镜像。
+- `boot.img.lz4`：最终 `boot.img` 的 LZ4 压缩版，签名或不签名构建都会提供。使用 1 MiB 独立块、内容校验和及原始大小字段；生成后解压核对与 `boot.img` 逐字节一致，两个文件均列入 `SHA256SUMS`。
 - `Image`、`kernel.config`、`Module.symvers`、`System.map`：编译结果及核查材料。
 - `bakasu.json`、`prepare.json`、`compile.json`、`module-trust.json`、`boot-manifest.json`、`config-check.json`、`source-manifest.json`：来源、完整 BakaSU commit、工具链、配置、原厂模块信任和镜像校验记录。
 - `SHA256SUMS`、`BUILD.txt`：文件哈希与摘要。
@@ -212,6 +213,6 @@ python3 -m unittest discover -s tests -v
 
 本地还使用保留的原厂模块完成额外核查：258 个模块，14,422 条符号 CRC，0 个不一致、0 个未解析符号；60 个签名模块全部受新内核信任。这项额外核查使用了本机保存的 vendor_boot 和模块提取目录，不属于只输入 boot/源码链接的云端流程。
 
-34 项脚本测试及 actionlint 1.7.12 语法检查通过。用历史 Image 与历史签名 salt 重打包时，也重现了已知成功 boot 的完整 SHA-256。默认新构建使用 Image SHA-256 作为 salt。补充检查确认：两种输出均为 64 MiB 且整体 4 KiB 对齐；未签名 boot 只增加零填充，三星尾部与原厂逐字节一致，官方模块证书同时位于编译内核的真实信任列表和最终 boot 内核中。测试同时覆盖整份 boot 错误拼接的拒绝、新内核缩小时清除旧内核残留、尾部填充及 AVB 残留拒绝。
+35 项脚本测试及 actionlint 1.7.12 语法检查通过。用历史 Image 与历史签名 salt 重打包时，也重现了已知成功 boot 的完整 SHA-256。默认新构建使用 Image SHA-256 作为 salt。补充检查确认：两种输出均为 64 MiB 且整体 4 KiB 对齐；未签名 boot 只增加零填充，三星尾部与原厂逐字节一致，官方模块证书同时位于编译内核的真实信任列表和最终 boot 内核中。测试同时覆盖整份 boot 错误拼接的拒绝、新内核缩小时清除旧内核残留、尾部填充及 AVB 残留拒绝，以及最终 boot 的 LZ4 压缩与哈希。
 
 这次本地生成的签名 boot SHA-256 为 `bad177b496fbffe12a0c72b4f4337cc2881d625447f47e4b2a96ea0487c6f917`。这份新构建完成了文件和模块核查，尚未刷入手表；本次也未在 GitHub runner 实际运行。
