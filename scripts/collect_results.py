@@ -106,8 +106,9 @@ def collect(work: Path, destination: Path, summary: Path | None = None):
     (destination / 'SHA256SUMS').write_text(''.join(f'{value}  {name}\n' for name, value in sorted(hashes.items())))
     if os.environ.get('GITHUB_OUTPUT'):
         commit = bakasu.get('commit', 'unresolved')[:12]
+        suffix = {'signed': '', 'unsigned': '-unsign', 'incomplete': '-incomplete'}[mode]
         with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
-            stream.write(f'artifact_name=gw-boot-{commit}-{mode}-{os.environ.get("GITHUB_RUN_ID", "local")}\n')
+            stream.write(f'artifact_name=gw-boot-{commit}{suffix}-{os.environ.get("GITHUB_RUN_ID", "local")}\n')
 
 
 if __name__ == '__main__':
