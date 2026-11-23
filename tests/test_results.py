@@ -45,33 +45,52 @@ class ResultsTests(unittest.TestCase):
             self.assertIn('incomplete', (output / 'BUILD.txt').read_text())
             self.assertFalse(list(output.glob('*.img*')))
 
-    def test_lz4_contains_final_signed_or_unsigned_boot_and_its_hash(self):
+    def test_lz4_and_checksums_cover_each_published_boot(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             output = root / 'dist'
-            for index, (signed, name) in enumerate(((True, 'boot.img'), (False, 'boot-unsign.img'), (True, 'boot.img'))):
-                work = root / f'work-{index}'
+            for signed in (True, False):
+                work = root / f'work-{signed}'
                 work.mkdir()
                 # Include nonzero content and the final footer/padding to catch
                 # accidentally compressing Image or a pre-signing boot instead.
-                final = bytes(range(256)) * 4096 + (b'AVBf' + bytes(60) if signed else bytes(64))
-                (work / 'boot.img').write_bytes(final)
+                payload = bytes(range(256)) * 4096
+                unsigned_boot = payload + bytes(64)
+                expected = {'boot-unsign.img': unsigned_boot}
+                if signed:
+                    expected['boot.img'] = payload + b'AVBf' + bytes(60)
+                    (work / 'boot-unsign.img').write_bytes(unsigned_boot)
+                    (work / 'boot-unsign-manifest.json').write_text(json.dumps({'verification': {'signed': False}}))
+                primary = 'boot.img' if signed else 'boot-unsign.img'
+                (work / 'boot.img').write_bytes(expected[primary])
                 (work / 'boot-manifest.json').write_text(json.dumps({'verification': {'signed': signed}}))
                 collect(work, output)
-                compressed_name = f'{name}.lz4'
-                self.assertEqual({p.name for p in output.glob('*.img*')}, {name, compressed_name})
-                self.assertEqual(json.loads((output / 'boot-manifest.json').read_text())['output'], name)
-                compressed = (output / compressed_name).read_bytes()
-                self.assertEqual(lz4.frame.decompress(compressed), final)
-                info = lz4.frame.get_frame_info(compressed)
-                self.assertEqual(info['content_size'], len(final))
-                self.assertTrue(info['content_checksum'])
-                self.assertFalse(info['block_linked'])
-                self.assertFalse(info['block_checksum'])
+                self.assertEqual({p.name for p in output.glob('*.img*')},
+                                 set(expected) | {f'{name}.lz4' for name in expected})
+                report = json.loads((output / 'boot-manifest.json').read_text())
+                self.assertEqual(report['output'], primary)
+                self.assertIs(report['verification']['signed'], signed)
+                companion_report = output / 'boot-unsign-manifest.json'
+                if signed:
+                    report = json.loads(companion_report.read_text())
+                    self.assertEqual(report['output'], 'boot-unsign.img')
+                    self.assertIs(report['verification']['signed'], False)
+                else:
+                    self.assertFalse(companion_report.exists())
                 checksums = {name: digest for digest, name in
                              (line.split('  ', 1) for line in (output / 'SHA256SUMS').read_text().splitlines())}
-                self.assertEqual(checksums[name], sha256(output / name))
-                self.assertEqual(checksums[compressed_name], sha256(output / compressed_name))
+                for name, final in expected.items():
+                    self.assertEqual((output / name).read_bytes(), final)
+                    compressed_name = f'{name}.lz4'
+                    compressed = (output / compressed_name).read_bytes()
+                    self.assertEqual(lz4.frame.decompress(compressed), final)
+                    info = lz4.frame.get_frame_info(compressed)
+                    self.assertEqual(info['content_size'], len(final))
+                    self.assertTrue(info['content_checksum'])
+                    self.assertFalse(info['block_linked'])
+                    self.assertFalse(info['block_checksum'])
+                    self.assertEqual(checksums[name], sha256(output / name))
+                    self.assertEqual(checksums[compressed_name], sha256(output / compressed_name))
 
 
 if __name__ == '__main__':

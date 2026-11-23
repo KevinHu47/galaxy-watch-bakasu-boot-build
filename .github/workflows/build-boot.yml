@@ -20,7 +20,7 @@ on:
         required: false
         type: string
       unsigned:
-        description: '不签名（不推荐）：输出 boot-unsign.img 和 boot-unsign.img.lz4，保留三星尾部/模块证书，补零至原大小，不生成 AVB。未勾选时，须在 Settings → Secrets and variables → Actions 的 Secrets 中添加 AVB_PRIVATE_KEY_B64，内容为 RSA-4096 私钥 PEM 的 Base64；缺失或无效则失败。'
+        description: '不签名（不推荐）：仅输出 boot-unsign 镜像，保留三星尾部/模块证书，补零至原大小，不生成 AVB。未勾选时同时输出签名版和未签名版，须在 Settings → Secrets and variables → Actions 的 Secrets 中添加 AVB_PRIVATE_KEY_B64，内容为 RSA-4096 私钥 PEM 的 Base64，缺失或无效会导致失败。'
         required: true
         default: false
         type: boolean
@@ -129,16 +129,22 @@ jobs:
           UNSIGNED: ${{ inputs.unsigned }}
           AVB_PRIVATE_KEY_B64: ${{ secrets.AVB_PRIVATE_KEY_B64 }}
         run: |
-          args=()
-          if [[ "$UNSIGNED" == 'true' ]]; then args+=(--unsigned); fi
-          python3 scripts/boot_image.py pack \
-            --stock "$WORK/stock/stock-boot.img" \
-            --kernel "$WORK/out/arch/arm64/boot/Image" \
+          pack_args=(
+            --stock "$WORK/stock/stock-boot.img"
+            --kernel "$WORK/out/arch/arm64/boot/Image"
+          )
+          if [[ "$UNSIGNED" == 'true' ]]; then
+            pack_args+=(--unsigned)
+          else
+            python3 scripts/boot_image.py pack "${pack_args[@]}" --unsigned \
+              --output "$WORK/boot-unsign.img" \
+              --manifest "$WORK/boot-unsign-manifest.json"
+          fi
+          python3 scripts/boot_image.py pack "${pack_args[@]}" \
             --output "$WORK/boot.img" \
-            --manifest "$WORK/boot-manifest.json" \
-            "${args[@]}"
+            --manifest "$WORK/boot-manifest.json"
 
-      - name: Compress final boot to LZ4 and collect results / hashes
+      - name: Compress boot images to LZ4 and collect results / hashes
         id: results
         if: ${{ always() && !cancelled() }}
         run: python3 scripts/collect_results.py --work "$WORK" --output "$DIST"

@@ -24,10 +24,18 @@ def compress_boot(source: Path, destination: Path) -> None:
     destination.write_bytes(compressed)
 
 
+def verified_boot_report(source: Path, manifest: Path) -> dict | None:
+    if source.is_file() and manifest.is_file():
+        report = json.loads(manifest.read_text())
+        if isinstance(report.get('verification', {}).get('signed'), bool):
+            return report
+    return None
+
+
 def collect(work: Path, destination: Path, summary: Path | None = None):
     destination.mkdir(parents=True, exist_ok=True)
     reports = ['source-manifest.json', 'bakasu.json', 'prepare.json', 'config-check.json',
-               'compile.json', 'module-trust.json', 'boot-manifest.json']
+               'compile.json', 'module-trust.json']
     for name in reports:
         if (work / name).is_file():
             shutil.copyfile(work / name, destination / name)
@@ -43,36 +51,50 @@ def collect(work: Path, destination: Path, summary: Path | None = None):
     if image.is_file():
         shutil.copyfile(image, destination / 'Image')
     bakasu = json.loads((work / 'bakasu.json').read_text()) if (work / 'bakasu.json').exists() else {}
-    boot = json.loads((work / 'boot-manifest.json').read_text()) if (work / 'boot-manifest.json').exists() else {}
-    signed = boot.get('verification', {}).get('signed')
     source_boot = work / 'boot.img'
-    boot_name = None
+    manifest_name = 'boot-manifest.json'
+    companion_manifest_name = 'boot-unsign-manifest.json'
+    boot = verified_boot_report(source_boot, work / manifest_name)
+    images = {}
     mode = 'incomplete'
-    if source_boot.is_file() and isinstance(signed, bool):
+    if boot is not None:
+        signed = boot['verification']['signed']
         boot_name = 'boot.img' if signed else 'boot-unsign.img'
         mode = 'signed' if signed else 'unsigned'
+        images[boot_name] = (source_boot, manifest_name, boot)
+        if signed:
+            companion = work / 'boot-unsign.img'
+            report = verified_boot_report(companion, work / companion_manifest_name)
+            if report is not None:
+                if report['verification']['signed']:
+                    raise ValueError('boot-unsign.img verification report marks it as signed')
+                images[companion.name] = (companion, companion_manifest_name, report)
 
-    # A reused output directory must not mix images from different modes.
+    # Remove images and reports left by a previous collection in this directory.
     for name in ('boot.img', 'boot-unsign.img'):
-        if name != boot_name:
+        if name not in images:
             (destination / name).unlink(missing_ok=True)
             (destination / f'{name}.lz4').unlink(missing_ok=True)
-
-    boot_hash = 'not produced'
-    if boot_name is not None:
-        published_boot = destination / boot_name
-        shutil.copyfile(source_boot, published_boot)
-        compress_boot(published_boot, destination / f'{boot_name}.lz4')
-        boot_hash = sha256(published_boot)
-        boot['output'] = boot_name
-        write_json(destination / 'boot-manifest.json', boot)
+    used_manifests = {name for _, name, _ in images.values()}
+    for name in (manifest_name, companion_manifest_name):
+        if name not in used_manifests:
+            (destination / name).unlink(missing_ok=True)
 
     text = ['# Galaxy Watch BakaSU boot', '',
             f'- BakaSU repository: `{bakasu.get("repository", "not resolved")}`',
             f'- BakaSU commit: `{bakasu.get("commit", "not resolved")}`',
-            f'- Result: **{mode}**',
-            f'- boot SHA-256: `{boot_hash}`', '']
-    if signed is False:
+            f'- Result: **{mode}**']
+    for name, (source, report_name, report) in images.items():
+        published_boot = destination / name
+        shutil.copyfile(source, published_boot)
+        compress_boot(published_boot, destination / f'{name}.lz4')
+        report['output'] = name
+        write_json(destination / report_name, report)
+        text.append(f'- `{name}` SHA-256: `{sha256(published_boot)}`')
+    if not images:
+        text.append('- boot SHA-256: `not produced`')
+    text.append('')
+    if 'boot-unsign.img' in images:
         text.extend(['Unsigned build (not recommended): no new AVB metadata or signature; '
                      'the original Samsung tail and recovered module certificates are preserved; '
                      'zero-padded to the original boot file size.', ''])

@@ -148,7 +148,7 @@ BZF4-update.zip
 5. 安装 Ubuntu 编译依赖，下载匹配 clang，执行 `olddefconfig`、`prepare`、`Image modules`，保持原内核 release。原 ARM32 compat、模块保护和 SELinux 配置会被保留；内存较小的 runner 会自动补充 4 GiB 交换空间供 BTF 阶段使用。
 6. 替换原 boot 的内核，更新 `kernel_size`，保留原头部其余字段和三星尾部。
 7. 编译后从 `vmlinux` 的 `__cert_list_start/end` 符号读取实际内置信任列表，强制核对原厂模块证书确实位于信任列表及 Image 中。缺失时停止，不输出 boot。
-8. 默认签名：添加 boot 内部 AVB hash/footer，使用 Secret 的 RSA-4096 私钥签名，并验签、校验 payload。勾选不签名则只在替换后的内容末尾补零至原 boot 大小，不添加 AVB。两条路径都逐字节保留三星尾部，并再次核对最终 boot 内核中的官方模块证书。
+8. 打包未签名 boot 时，在替换后的内容末尾补零至原 boot 大小。默认还会用同一个内核打包签名 boot，添加内部 AVB hash/footer，使用 Secret 的 RSA-4096 私钥签名并验签。每份镜像都单独核对内核内容、三星尾部和官方模块证书。
 
 ### 内核替换、大小与对齐
 
@@ -188,9 +188,9 @@ gw-boot-<BakaSU commit前12位>-signed或unsigned-<run id>
 
 其中包括：
 
-- 签名构建提供 `boot.img` 和 `boot.img.lz4`。
-- 不签名构建的镜像仅为 `boot-unsign.img` 和 `boot-unsign.img.lz4`。
-- LZ4 版本使用 1 MiB 独立块、内容校验和及原始大小字段。生成后解压核对与对应镜像逐字节一致，两个文件均列入 `SHA256SUMS`。
+- 签名构建会在同一个压缩包中提供 `boot.img`、`boot.img.lz4`、`boot-unsign.img` 和 `boot-unsign.img.lz4`。两种镜像使用同一次编译生成的内核，附带的未签名版有独立的 `boot-unsign-manifest.json` 校验报告。
+- 勾选「不签名」时，镜像文件只有 `boot-unsign.img` 和 `boot-unsign.img.lz4`。
+- LZ4 版本使用 1 MiB 独立块、内容校验和及原始大小字段。生成后解压核对与对应镜像逐字节一致，所有镜像文件均列入 `SHA256SUMS`。
 - `Image`、`kernel.config`、`Module.symvers`、`System.map`：编译结果及核查材料。
 - `bakasu.json`、`prepare.json`、`compile.json`、`module-trust.json`、`boot-manifest.json`、`config-check.json`、`source-manifest.json`：来源、完整 BakaSU commit、工具链、配置、原厂模块信任和镜像校验记录。
 - `SHA256SUMS`、`BUILD.txt`：文件哈希与摘要。
