@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Compile with the recovered stock config and retain its kernel release."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from common import sha256, write_json
+from module_trust import verify_module_trust
+from prepare_kernel import read_config
+
+
+def check_config(stock: Path, current: Path, overrides: dict) -> dict:
+    before, after = read_config(stock), read_config(current)
+    changes = {k: {'stock': before.get(k, 'n'), 'build': after.get(k, 'n')}
+               for k in sorted(before.keys() | after.keys()) if before.get(k, 'n') != after.get(k, 'n')}
+    missing = {}
+    for name, value in overrides.items():
+        expected = value if value in ('y', 'n') else '"' + value + '"'
+        if after.get('CONFIG_' + name, 'n') != expected:
+            missing[name] = {'expected': expected, 'actual': after.get('CONFIG_' + name, 'n')}
+    # These stock ABI/signature/SELinux settings must survive olddefconfig.
+    important = ['CONFIG_COMPAT', 'CONFIG_MODVERSIONS', 'CONFIG_MODULE_SIG_PROTECT',
+                 'CONFIG_MODULE_SIG_FORCE', 'CONFIG_SECURITY_SELINUX', 'CONFIG_ARM64']
+    preserved = {k: before.get(k, 'n') == after.get(k, 'n') for k in important}
+    # Do not silently package a kernel whose exported ABI layout was changed by
+    # an incompatible source/config combination. Host-probed tool settings vary.
+    intentional = {'CONFIG_' + k for k in overrides}
+    host = {'CONFIG_CC_VERSION_TEXT', 'CONFIG_GCC_VERSION', 'CONFIG_CLANG_VERSION',
+            'CONFIG_AS_VERSION', 'CONFIG_LD_VERSION', 'CONFIG_PAHOLE_VERSION'}
+    host_prefixes = ('CONFIG_CC_HAS_', 'CONFIG_AS_HAS_', 'CONFIG_LD_HAS_', 'CONFIG_PAHOLE_HAS_')
+    unrelated = {k: v for k, v in changes.items()
+                 if k not in intentional | host and not k.startswith(host_prefixes)
+                 and not k.startswith('CONFIG_KSU')
+                 and not (v['stock'] == 'n' and v['build'] == 'n')}
+    report = {'changes': changes, 'missing_required_settings': missing,
+              'stock_settings_preserved': preserved, 'other_changes': unrelated,
+              'passed': not missing and all(preserved.values())}
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--work', type=Path, required=True)
+    parser.add_argument('--jobs', type=int, default=max(1, os.cpu_count() or 2))
+    args = parser.parse_args()
+    work = args.work
+    source, output = work / 'src/kernel', work / 'out'
+    prepare = json.loads((work / 'prepare.json').read_text())
+    settings = prepare['settings']
+    env = os.environ.copy()
+    # The signing secret is provided to a later workflow step only.
+    env.pop('AVB_PRIVATE_KEY_B64', None)
+    env.update({'PATH': prepare['toolchain']['root'] + '/bin:' + env['PATH'],
+                'ARCH': 'arm64', 'LLVM': '1', 'LLVM_IAS': '1',
+                'CROSS_COMPILE': 'aarch64-linux-gnu-', 'CROSS_COMPILE_COMPAT': 'arm-linux-gnueabi-',
+                'KBUILD_BUILD_USER': 'build-user', 'KBUILD_BUILD_HOST': 'build-host',
+                'KBUILD_BUILD_VERSION': '1', 'KBUILD_BUILD_TIMESTAMP': 'Thu Jan  1 00:00:00 UTC 1970',
+                'SOURCE_DATE_EPOCH': '0', 'KCONFIG_NOTIMESTAMP': '1',
+                'BRANCH': settings['branch'], 'KMI_GENERATION': settings['kmi_generation'],
+                'TARGET_BUILD_VARIANT': settings['target_build_variant'], 'TARGET_SOC': settings['target_soc'],
+                'KCFLAGS': '-D__ANDROID_COMMON_KERNEL__'})
+    for key in ('BUILD_NUMBER', 'KBUILD_OUTPUT', 'KCONFIG_CONFIG', 'LOCALVERSION', 'TARGET_PRODUCT'):
+        env.pop(key, None)
+    command = ['make', '-C', str(source), f'O={output}', 'ARCH=arm64', 'LLVM=1', 'LLVM_IAS=1']
+    subprocess.run([*command, 'olddefconfig'], env=env, check=True)
+    report = check_config(work / 'stock/stock.config', output / '.config', prepare['config_overrides'])
+    write_json(work / 'config-check.json', report)
+    if not report['passed']:
+        raise ValueError('Required root/stock ABI settings changed; see config-check.json')
+    if report['other_changes']:
+        print('Additional Kconfig changes are recorded in config-check.json:',
+              ', '.join(report['other_changes']), flush=True)
+    subprocess.run([*command, 'prepare'], env=env, check=True)
+    release = subprocess.check_output([*command, '--no-print-directory', '-s', 'kernelrelease'],
+                                      env=env, text=True).strip().splitlines()[-1]
+    if release != settings['kernel_release']:
+        raise ValueError(f'Built kernel release {release} differs from original {settings["kernel_release"]}')
+    subprocess.run([*command, f'-j{max(1, args.jobs)}', 'Image', 'modules'], env=env, check=True)
+    image = output / 'arch/arm64/boot/Image'
+    if not image.is_file():
+        raise ValueError('Build did not produce arch/arm64/boot/Image')
+    symbols = (output / 'System.map').read_text()
+    if 'ksu_' not in symbols:
+        raise ValueError('Built kernel has no BakaSU symbols')
+    trust = verify_module_trust(output / 'vmlinux', image, work / 'stock/stock-module-keys.pem',
+                                work / 'module-trust.json')
+    write_json(work / 'compile.json', {'kernel_release': release, 'image_sha256': sha256(image),
+                                     'image_bytes': image.stat().st_size, 'bakasu': prepare['bakasu'],
+                                     'has_bakasu_symbols': True, 'original_module_trust_verified': trust['passed']})
+    print(f'Compiled Image: {sha256(image)}', flush=True)
+
+
+if __name__ == '__main__':
+    main()
