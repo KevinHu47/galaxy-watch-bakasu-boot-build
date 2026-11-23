@@ -20,7 +20,7 @@ on:
         required: false
         type: string
       unsigned:
-        description: '不签名（不推荐）：保留三星尾部/模块证书，补零至原大小，不生成 AVB'
+        description: '不签名（不推荐）：保留三星尾部/模块证书，补零至原大小，不生成 AVB。未勾选时，须在 Settings → Secrets and variables → Actions 的 Secrets 中添加 AVB_PRIVATE_KEY_B64，内容为 RSA-4096 私钥 PEM 的 Base64；缺失或无效则失败。'
         required: true
         default: false
         type: boolean

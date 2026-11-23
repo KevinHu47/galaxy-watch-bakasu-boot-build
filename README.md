@@ -12,6 +12,8 @@
 
 默认构建会使用 `SHA256_RSA4096` 对 **boot 自身**添加 AVB 签名。这里的 AVB 信息位于 boot 内部；不会输出 `vbmeta.img`。
 
+**未勾选“不签名（不推荐）”时，必须配置 `AVB_PRIVATE_KEY_B64`。** 缺失、为空、Base64/PEM 无效、私钥有密码，或不是 RSA-4096 私钥，都会在下载 boot/源码和编译前失败；不会自动生成替代 AVB 私钥，也不会自动降级为不签名。只有主动勾选该选项才允许不提供密钥。
+
 在仓库 **Settings → Secrets and variables → Actions → Secrets → New repository secret** 添加：
 
 ```text
@@ -19,9 +21,55 @@ Name: AVB_PRIVATE_KEY_B64
 Secret: 你的 RSA-4096 私钥 PEM 文件的 Base64 文本
 ```
 
-Action 将这个 Secret 以同名环境变量提供给签名步骤。不要把私钥放入普通 Variables、workflow 输入框或提交到仓库。
+工作流读取 `${{ secrets.AVB_PRIVATE_KEY_B64 }}`，将它以同名环境变量提供给密钥检查和 boot 签名步骤。请添加到 **Secrets**，而非同名的普通 **Variables**；只设置 Variables 不会被读取。用于验证原厂 `.ko` 的公开证书以及构建自动生成的模块签名密钥，与这个 boot AVB 私钥是不同用途。
 
-已有私钥时，在 PowerShell 生成 Base64 并复制到剪贴板：
+### 在本机生成新私钥并转换为 Base64
+
+PowerShell（需要已安装 OpenSSL；先用 `openssl version` 确认可用）：
+
+```powershell
+$gwSigningDir = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gw-signing'
+New-Item -ItemType Directory -Force -Path $gwSigningDir | Out-Null
+$gwPrivateKey = Join-Path $gwSigningDir 'gw-avb-rsa4096.pem'
+if (Test-Path -LiteralPath $gwPrivateKey) {
+    throw '密钥已存在，请使用下面的已有私钥步骤，或选择新的文件名。'
+}
+
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out $gwPrivateKey
+if ($LASTEXITCODE -ne 0) { throw '生成 RSA-4096 私钥失败。' }
+openssl pkey -in $gwPrivateKey -check -noout
+if ($LASTEXITCODE -ne 0) { throw '私钥校验失败。' }
+
+$gwKeyBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($gwPrivateKey))
+$gwKeyBase64 | Set-Clipboard
+```
+
+私钥存储在用户目录的 `.gw-signing/gw-avb-rsa4096.pem`。剪贴板里的完整 Base64 文本粘贴到 GitHub Secret **`AVB_PRIVATE_KEY_B64`**。
+
+Linux / WSL（没有 OpenSSL 时先执行 `sudo apt-get install openssl`）：
+
+```bash
+(
+  set -eu
+  umask 077
+  mkdir -p "$HOME/.gw-signing"
+  gw_private_key="$HOME/.gw-signing/gw-avb-rsa4096.pem"
+  if [ -e "$gw_private_key" ]; then
+    echo '密钥已存在，请复用已有私钥或选择新的文件名。' >&2
+    exit 1
+  fi
+  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$gw_private_key"
+  openssl pkey -in "$gw_private_key" -check -noout
+  base64 -w 0 "$gw_private_key"
+  printf '\n'
+)
+```
+
+将最后输出的完整 Base64 文本粘贴到同名 Secret。保留本机 PEM，后续构建可复用同一把密钥；不要把 PEM 或 Base64 文本提交到仓库。
+
+### 已有私钥时转换为 Base64
+
+在 PowerShell 读取已有 PEM 并复制 Base64 到剪贴板：
 
 ```powershell
 $keyBytes = [System.IO.File]::ReadAllBytes((Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gw-signing/gw-avb-rsa4096.pem'))
@@ -32,14 +80,6 @@ Linux / WSL：
 
 ```bash
 base64 -w 0 /path/to/gw-avb-rsa4096.pem
-```
-
-没有密钥时，可在本机生成并自行保存：
-
-```bash
-umask 077
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out gw-avb-rsa4096.pem
-base64 -w 0 gw-avb-rsa4096.pem
 ```
 
 私钥必须是未加密的 PEM RSA-4096 私钥。本地签名与三星生产签名是不同的；签名通过表示镜像内容与该密钥相符。
@@ -56,7 +96,7 @@ base64 -w 0 gw-avb-rsa4096.pem
 | `source_urls` | 三星源码包下载直链，用英文分号 `;` 分隔。先完整基础包，再型号适配包，再更新包；允许三个或更多，也可以只有一个完整包 |
 | `bakasu_repository` | 可选；`owner/repo` 或 HTTPS Git 地址。留空使用 `https://github.com/Baka-SU/BakaSU.git` |
 | `bakasu_ref` | 可选；commit 哈希、分支或 tag。留空使用所选仓库**默认分支的最新提交** |
-| `unsigned` | 默认不勾选。勾选“不签名（不推荐）”后，不生成新的 boot AVB，也不复制旧 boot AVB；**保留原厂三星尾部和恢复的官方模块证书，并补零至原 boot 大小**。无需签名 Secret |
+| `unsigned` | 默认不勾选，此时必须配置 Secret **`AVB_PRIVATE_KEY_B64`**（RSA-4096 私钥 PEM 的 Base64），缺失或无效则失败。勾选后不生成新的 boot AVB，也不复制旧 boot AVB；**保留原厂三星尾部和恢复的官方模块证书，并补零至原 boot 大小**，无需签名 Secret |
 | `toolchain_url` | 可选；clang 工具链压缩包直链。留空根据源码的 `CLANG_VERSION` 与 Android 分支下载 AOSP 工具链 |
 
 示例：
