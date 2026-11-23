@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: '手表型号，例如 SM-L315F'
+        description: '手表型号 (SM-XXXXX)'
         required: true
         type: string
       firmware:
-        description: '完整固件版本，例如 L315FXXS3BZF4'
+        description: '固件版本 (如L315FXXS3BZF4，可以在设备的关于-软件信息-固件版本中查看)'
         required: true
         type: string
       archive_item:
-        description: '可选：Archive.org 归档编号或详情链接。留空自动查询；三星搜索不可用时可填写例如 samsung-opensource-14120'
+        description: '可选：Archive.org 归档编号或详情链接。留空自动查询；搜索不可用时可填写例如 samsung-opensource-14120'
         required: false
         type: string
 
