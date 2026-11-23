@@ -1,0 +1,10 @@
+{
+  "description": "Archive item hints observed in Samsung search and Archive metadata. Each query must revalidate live filenames, exact firmware tokens and README dependencies; hints never substitute for these checks.",
+  "items": [
+    {
+      "archive_item": "samsung-opensource-14120",
+      "models": ["SM-L300", "SM-L305F", "SM-L305N", "SM-L305U", "SM-L310", "SM-L3150", "SM-L315F", "SM-L315N", "SM-L315U"],
+      "source": "https://archive.org/metadata/samsung-opensource-14120"
+    }
+  ]
+}

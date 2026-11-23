@@ -5,12 +5,13 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.error
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from find_source_links import (SamsungSearchParser, discover_rows, main, normalize_item,
+from find_source_links import (Client, SamsungSearchParser, discover_archive_items, discover_rows, main, normalize_item,
                                read_dependencies, resolve, select_packages, summary,
                                validate_inputs)
 
@@ -135,6 +136,120 @@ class SourceLinkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '未能唯一解析'):
             resolve(FakeClient(), 'SM-L315F', 'L315FXXS3BZF4', '14120', report)
         self.assertEqual(report['candidate_errors'][0]['archive_item'], 'samsung-opensource-14120')
+
+    def test_http_520_retries_and_recovers(self):
+        response = unittest.mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b'recovered'
+        error = urllib.error.HTTPError('https://opensource.samsung.com/uploadSearch', 520, 'origin error', {}, None)
+        self.addCleanup(error.close)
+        with patch('find_source_links.urllib.request.urlopen', side_effect=[error, error, response]) as request, \
+                patch('find_source_links.time.sleep') as pause:
+            self.assertEqual(Client().read(error.url), b'recovered')
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(pause.call_count, 2)
+
+    def test_http_404_is_not_retried(self):
+        error = urllib.error.HTTPError('https://archive.org/missing', 404, 'not found', {}, None)
+        self.addCleanup(error.close)
+        with patch('find_source_links.urllib.request.urlopen', side_effect=error) as request, \
+                patch('find_source_links.time.sleep') as pause:
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 404'):
+                Client().read(error.url)
+        self.assertEqual(request.call_count, 1)
+        pause.assert_not_called()
+
+    def test_samsung_520_automatically_resolves_live_archive_hint(self):
+        catalog = self.catalog
+        class FakeClient:
+            def read(self, _):
+                raise RuntimeError('HTTP 520 Samsung origin error')
+            def metadata(self, item):
+                self.item = item
+                return catalog
+        report = {}
+        client = FakeClient()
+        with patch('find_source_links.read_dependencies', side_effect=lambda *args: dependency(args[-1])):
+            result = resolve(client, 'SM-L315F', 'L315FXXS3BZF4', '', report)
+        self.assertEqual(client.item, 'samsung-opensource-14120')
+        self.assertEqual([p['name'] for p in result['packages']], [BASE, DEVICE, UPDATE])
+        self.assertEqual(report['discovery']['method'], 'archive_fallback')
+        self.assertIn('520', report['discovery']['samsung_error'])
+        rendered = summary(report | {'model': 'SM-L315F', 'firmware': 'L315FXXS3BZF4',
+                                    'result': result, 'status': 'success'})
+        self.assertIn('已自动通过 Archive.org', rendered)
+        self.assertIn('```text\n' + result['source_urls'], rendered)
+
+    def test_unknown_firmware_does_not_reuse_hint_links(self):
+        catalog = self.catalog
+        class FakeClient:
+            def read(self, _):
+                raise RuntimeError('HTTP 520')
+            def metadata(self, _):
+                return catalog
+            def archive_items(self):
+                return ['samsung-opensource-14120', 'samsung-opensource-12345']
+            def archive_files(self, _):
+                return catalog['files']
+        report = {}
+        with self.assertRaisesRegex(ValueError, '没有精确匹配'):
+            resolve(FakeClient(), 'SM-L315F', 'L315FXXS3BZZ9', '', report)
+        self.assertTrue(report['archive_scan']['complete'])
+        self.assertEqual(report['archive_scan']['checked_items'], 1)
+
+    def test_no_hint_scans_collection_and_finds_exact_firmware(self):
+        catalog = self.catalog
+        class FakeClient:
+            def read(self, _):
+                raise RuntimeError('HTTP 520')
+            def archive_items(self):
+                return ['samsung-opensource-10000', 'samsung-opensource-14120']
+            def archive_files(self, item):
+                return catalog['files'] if item.endswith('14120') else metadata(BASE)['files']
+            def metadata(self, _):
+                return catalog
+        report = {}
+        with patch('find_source_links.archive_hint_items', return_value=[]), \
+                patch('find_source_links.read_dependencies', side_effect=lambda *args: dependency(args[-1])):
+            result = resolve(FakeClient(), 'SM-L315F', 'L315FXXS3BZF4', '', report)
+        self.assertTrue(report['archive_scan']['complete'])
+        self.assertEqual(report['archive_scan']['checked_items'], 2)
+        self.assertEqual(result['archive_item'], 'samsung-opensource-14120')
+
+    def test_scan_rejects_partial_results_even_after_a_match(self):
+        catalog = self.catalog
+        class FakeClient:
+            def archive_items(self):
+                return ['samsung-opensource-14120', 'samsung-opensource-10000']
+            def archive_files(self, item):
+                if item.endswith('10000'):
+                    raise RuntimeError('HTTP 503')
+                return catalog['files']
+        report = {}
+        with self.assertRaisesRegex(ValueError, '扫描未完成'):
+            discover_archive_items(FakeClient(), 'L315FXXS3BZF4', report, set())
+        self.assertFalse(report['archive_scan']['complete'])
+        self.assertEqual(report['archive_scan']['error_count'], 1)
+        self.assertEqual(report['archive_scan']['matches'], ['samsung-opensource-14120'])
+
+    def test_scan_budget_exhaustion_is_not_reported_as_no_match(self):
+        class FakeClient:
+            def archive_items(self):
+                return ['samsung-opensource-14120']
+            def archive_files(self, _):
+                raise AssertionError('budget exhausted before any request')
+        report = {}
+        with patch('find_source_links.ARCHIVE_SCAN_SECONDS', 0):
+            with self.assertRaisesRegex(ValueError, '扫描未完成'):
+                discover_archive_items(FakeClient(), 'L315FXXS3BZF4', report, set())
+        self.assertEqual(report['archive_scan']['checked_items'], 0)
+
+    def test_incomplete_collection_listing_is_rejected(self):
+        class FakeClient(Client):
+            def read(self, _):
+                return json.dumps({'response': {'numFound': 2,
+                                   'docs': [{'identifier': 'samsung-opensource-14120'}]}}).encode()
+        with self.assertRaisesRegex(ValueError, '条目列表不完整'):
+            FakeClient().archive_items()
 
     def test_small_overlay_zip_readme_and_hash_checked(self):
         buffer = io.BytesIO()

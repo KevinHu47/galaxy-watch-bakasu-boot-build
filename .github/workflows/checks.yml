@@ -4,11 +4,13 @@ on:
   push:
     paths:
       - 'scripts/**'
+      - 'data/**'
       - 'tests/**'
       - '.github/workflows/**'
   pull_request:
     paths:
       - 'scripts/**'
+      - 'data/**'
       - 'tests/**'
       - '.github/workflows/**'
   workflow_dispatch:

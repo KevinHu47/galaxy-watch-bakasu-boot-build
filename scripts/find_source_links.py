@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Resolve a Samsung model/build to ordered Internet Archive source URLs.
 
-Samsung's public search table supplies upload IDs and supported builds. Archive
-metadata supplies actual filenames; small overlay ZIP READMEs supply base-source
-dependencies. No source files or instructions from the archives are executed.
+Samsung's public search table supplies upload IDs and supported builds. If it is
+unavailable, known archive hints and the Archive collection's file index provide
+discovery. Live metadata supplies filenames; small overlay ZIP READMEs supply
+base-source dependencies. No source files or archive instructions are executed.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -30,6 +32,9 @@ SAMSUNG_SEARCH = 'https://opensource.samsung.com/uploadSearch'
 ARCHIVE = 'https://archive.org'
 MAX_OVERLAY_SIZE = 16 << 20
 MODEL_RE = re.compile(r'SM-[A-Z0-9]{3,16}')
+ARCHIVE_HINTS = Path(__file__).resolve().parents[1] / 'data/archive-source-hints.json'
+ARCHIVE_SCAN_SECONDS = 600
+ARCHIVE_SCAN_WORKERS = 16
 
 
 def firmware_in_name(firmware: str, name: str) -> bool:
@@ -118,7 +123,8 @@ class Client:
                     raise ValueError(f'响应超过 {limit} 字节，停止解析：{url}')
                 return data
             except (OSError, urllib.error.URLError) as error:
-                if isinstance(error, urllib.error.HTTPError) and error.code not in (429, 500, 502, 503, 504):
+                if (isinstance(error, urllib.error.HTTPError)
+                        and error.code != 429 and not 500 <= error.code <= 599):
                     raise RuntimeError(f'请求失败 HTTP {error.code}：{url}') from error
                 if attempt == 2:
                     raise RuntimeError(f'请求三次失败：{url} ({error})') from error
@@ -130,6 +136,27 @@ class Client:
         if data.get('metadata', {}).get('identifier') != item or not data.get('files'):
             raise ValueError(f'Archive.org 未收录该归档或没有文件：{item}')
         return data
+
+    def archive_items(self) -> list[str]:
+        """Archive search indexes item metadata, not ZIP filenames/builds."""
+        url = ARCHIVE + '/advancedsearch.php?' + urllib.parse.urlencode({
+            'q': 'collection:samsung-opensource', 'fl[]': 'identifier',
+            'rows': 10000, 'output': 'json', 'sort[]': 'identifier asc',
+        })
+        data = json.loads(self.read(url))
+        response = data.get('response', {})
+        docs = response.get('docs', [])
+        if 'numFound' not in response or response['numFound'] != len(docs):
+            raise ValueError('Archive.org 条目列表不完整，无法确认完整固件版本。')
+        return sorted({doc['identifier'] for doc in docs
+                       if re.fullmatch(r'samsung-opensource-\d+', doc.get('identifier', ''))},
+                      key=lambda item: int(item.rsplit('-', 1)[-1]), reverse=True)
+
+    def archive_files(self, item: str) -> list[dict]:
+        data = json.loads(self.read(f'{ARCHIVE}/metadata/{item}/files'))
+        if not isinstance(data.get('result'), list):
+            raise ValueError('Archive.org 未返回文件清单：' + item)
+        return data['result']
 
 
 def discover_rows(client: Client, model: str, firmware: str) -> tuple[list[dict], list[str]]:
@@ -151,7 +178,60 @@ def discover_rows(client: Client, model: str, firmware: str) -> tuple[list[dict]
         except (ValueError, RuntimeError) as error:
             errors.append(str(error))
     detail = '；'.join(errors) if errors else '三星搜索表中没有型号与完整固件版本同时匹配的记录。'
-    raise ValueError(detail + ' 可在 archive_item 中填写已知的 Archive.org 条目编号后重试。')
+    raise ValueError(detail)
+
+
+def archive_hint_items(model: str) -> list[str]:
+    """Hints locate known items; live metadata must still match the build."""
+    data = json.loads(ARCHIVE_HINTS.read_text(encoding='utf-8'))
+    return list(dict.fromkeys(normalize_item(entry['archive_item']) for entry in data['items']
+                              if model in entry['models']))
+
+
+def discover_archive_items(client: Client, firmware: str, report: dict,
+                           skip: set[str]) -> list[str]:
+    """Scan filename lists when Samsung and the known-item hints cannot help.
+
+    Complete all indexed items before choosing a result. An interrupted scan or
+    unreadable item must not hide another possible firmware match.
+    """
+    items = [item for item in client.archive_items() if item not in skip]
+    scan = {'total_items': len(items), 'checked_items': 0, 'complete': False,
+            'matches': [], 'error_count': 0, 'errors': []}
+    report['archive_scan'] = scan
+    started = time.monotonic()
+
+    def inspect(item):
+        try:
+            files = original_zip_files({'files': client.archive_files(item)})
+            return item, any(firmware_in_name(firmware, f['name']) for f in files), None
+        except (ValueError, RuntimeError, OSError) as error:
+            return item, False, str(error)
+
+    print(f'三星索引不可用，正在检查 Archive.org 的 {len(items)} 个条目文件清单。', flush=True)
+    with ThreadPoolExecutor(max_workers=ARCHIVE_SCAN_WORKERS) as executor:
+        for start in range(0, len(items), ARCHIVE_SCAN_WORKERS):
+            if time.monotonic() - started >= ARCHIVE_SCAN_SECONDS:
+                break
+            batch = items[start:start + ARCHIVE_SCAN_WORKERS]
+            for item, matches, error in executor.map(inspect, batch):
+                scan['checked_items'] += 1
+                if matches:
+                    scan['matches'].append(item)
+                if error:
+                    scan['error_count'] += 1
+                    if len(scan['errors']) < 20:
+                        scan['errors'].append({'archive_item': item, 'error': error})
+            if start % (ARCHIVE_SCAN_WORKERS * 16) == 0:
+                print(f"Archive.org 已检查 {scan['checked_items']}/{len(items)} 个条目。", flush=True)
+    scan['complete'] = scan['checked_items'] == len(items) and scan['error_count'] == 0
+    if not scan['complete']:
+        raise ValueError('Archive.org 文件索引扫描未完成或有请求失败，无法确定所有候选。'
+                         '可填写已知的 archive_item 直接查询。')
+    if not scan['matches']:
+        raise ValueError('Archive.org 文件清单中没有精确匹配该完整固件版本的源码包。'
+                         '归档可能尚未收录该版本。')
+    return scan['matches']
 
 
 def model_in_package(model: str, name: str) -> bool:
@@ -245,7 +325,7 @@ def select_packages(model: str, firmware: str, metadata: dict, row: dict | None,
     notes = ['链接与文件名来自 Archive.org 实际文件清单；顺序为基础包、型号适配包、精确版本更新包。',
              '只分析源码链接及 README 依赖；完整源码内容、可编译性与实机兼容性尚未由本次查找验证。']
     if not row:
-        notes.append('使用指定归档，未查询三星版本表；固件版本匹配依据为归档中的完整文件名。')
+        notes.append('未使用三星实时版本表；固件版本匹配依据为归档中的完整文件名。')
     if not dependencies:
         notes.append('未识别到 README 基础版本依赖；包顺序依据文件名分类，请核对源包说明。')
     return {'archive_item': item, 'archive_url': f'{ARCHIVE}/details/{item}',
@@ -254,18 +334,37 @@ def select_packages(model: str, firmware: str, metadata: dict, row: dict | None,
 
 
 def resolve(client: Client, model: str, firmware: str, item: str, report: dict) -> dict:
+    metadata_cache = {}
     if item:
         rows = [None]
         items = [normalize_item(item)]
         report['discovery'] = {'method': 'explicit_archive_item'}
     else:
-        rows, errors = discover_rows(client, model, firmware)
-        items = ['samsung-opensource-' + row['upload_id'] for row in rows]
-        report['discovery'] = {'method': 'samsung_search', 'rows': rows, 'request_errors': errors}
+        try:
+            rows, errors = discover_rows(client, model, firmware)
+            items = ['samsung-opensource-' + row['upload_id'] for row in rows]
+            report['discovery'] = {'method': 'samsung_search', 'rows': rows, 'request_errors': errors}
+        except (ValueError, RuntimeError) as error:
+            report['discovery'] = {'method': 'archive_fallback', 'samsung_error': str(error),
+                                   'hint_items': archive_hint_items(model), 'hint_errors': []}
+            print('三星型号／版本查询失败，改用 Archive.org 自动查找。', flush=True)
+            checked, items = set(), []
+            for item_id in report['discovery']['hint_items']:
+                try:
+                    metadata = client.metadata(item_id)
+                    metadata_cache[item_id] = metadata
+                    checked.add(item_id)
+                    if any(firmware_in_name(firmware, f['name']) for f in original_zip_files(metadata)):
+                        items.append(item_id)
+                except (ValueError, RuntimeError, OSError) as hint_error:
+                    report['discovery']['hint_errors'].append({'archive_item': item_id, 'error': str(hint_error)})
+            if not items or report['discovery']['hint_errors']:
+                items += discover_archive_items(client, firmware, report, checked)
+            rows = [None] * len(items)
     candidates, errors = [], []
     for item_id, row in zip(items, rows):
         try:
-            metadata = client.metadata(item_id)
+            metadata = metadata_cache.get(item_id) or client.metadata(item_id)
             result = select_packages(model, firmware, metadata, row,
                                      lambda f: read_dependencies(client, item_id, f))
             candidates.append(result)
@@ -293,6 +392,10 @@ def summary(report: dict) -> str:
             lines += ['', f"候选归档：[{candidate['archive_item']}]({candidate['archive_url']})"]
         for error in report.get('candidate_errors', []):
             lines += ['', f"- {markdown(error['archive_item'])}：{markdown(error['error'])}"]
+        if report.get('archive_scan'):
+            scan = report['archive_scan']
+            lines += ['', f"Archive.org 扫描进度：{scan['checked_items']}/{scan['total_items']}，"
+                      f"请求失败 {scan['error_count']} 个。"]
     else:
         result = report['result']
         lines += [f"归档：[{result['archive_item']}]({result['archive_url']})", '',
@@ -305,9 +408,15 @@ def summary(report: dict) -> str:
         if result['base_versions']:
             lines += ['README 要求的基础源码版本：' + ', '.join(f'`{v}`' for v in result['base_versions']) + '。', '']
         discovery = report['discovery']
+        if discovery.get('method') == 'archive_fallback':
+            lines += ['三星搜索不可用，已自动通过 Archive.org 文件清单与 README 完成匹配。', '']
         for row in discovery.get('rows', []):
             lines += [f"三星索引：[型号／版本查询]({row['search_url']})，upload ID `{row['upload_id']}`。", '']
         lines += ['- ' + markdown(note) for note in result['notes']]
+    samsung_error = report.get('discovery', {}).get('samsung_error')
+    if samsung_error:
+        lines += ['', '<details><summary>三星搜索失败详情（已尝试 Archive.org 回退）</summary>', '',
+                  '```text', samsung_error.replace('```', ''), '```', '', '</details>']
     return '\n'.join(lines) + '\n'
 
 

@@ -92,13 +92,15 @@ base64 -w 0 "$HOME/.gw-signing/gw-avb-rsa4096.pem"
 | --- | --- | --- |
 | `model` | `SM-L315F` | 手表完整型号 |
 | `firmware` | `L315FXXS3BZF4` | 完整构建号，精确匹配，不自动替换为更新版本 |
-| `archive_item` | 留空 | 自动通过三星开源搜索表定位 upload ID；三星搜索不可用时，可填写 `samsung-opensource-14120`、`14120` 或对应的 Archive.org 详情链接 |
+| `archive_item` | 留空 | 自动查询三星索引；失败时自动从 Archive.org 查找。也可填写 `samsung-opensource-14120`、`14120` 或对应的 Archive.org 详情链接，跳过三星搜索直接定位 |
 
 运行的 **Summary** 显示按“完整基础包 → 型号适配包 → 固件版本更新包”排列的下载链接，以及一行英文分号分隔的 `source_urls`。将这一行直接复制到下面的编译 Action。分析报告和 `source-urls.txt` 同时上传到该次运行的 Artifacts，不需要 AVB 签名 Secret。
 
 例如 `SM-L315F` / `L315FXXS3BZF4` 对应 Archive.org 的 [`samsung-opensource-14120`](https://archive.org/details/samsung-opensource-14120)，选择基础包 `SM-L305U_Opensource.zip`、型号包 `SM-L315F_EUR_Opensource_dts.zip`，再选择文件名中精确包含 `L315FXXS3BZF4` 的更新包。不会把同条目中较早的 BZE1 更新包一起加入。
 
 脚本读取三星公开搜索表和 Archive.org 的实际文件清单，读取小于等于 16 MiB 的型号／更新 ZIP 中的 README，核对其基础版本依赖及 Archive 提供的大小、校验值。不会下载完整基础源码包或编译内核。只识别可明确分类的基础、DTS、更新包；缺少基础包、型号适配包、版本不匹配、依赖冲突、多个候选或请求失败时，在 Summary 中说明原因并使任务失败，不生成猜测的链接。指定 `archive_item` 时跳过三星搜索，完整固件版本必须出现在归档文件名中。
+
+三星站点返回 520、其他 5xx、403 或验证页面时，不再直接停止。脚本会先尝试已记录的型号归档线索（`data/archive-source-hints.json`），重新读取在线文件清单并精确核对完整版本；线索未命中时，再扫描 Archive.org 三星开源集合的文件索引。扫描有 10 分钟预算，必须完整扫描且没有请求错误才采用结果；扫描中断或仍无法匹配时，可填写 `archive_item` 缩小范围。成功回退后，Summary 会说明来源并折叠显示三星请求失败详情。
 
 Archive.org 是第三方镜像，可能尚未收录某个三星条目或更新文件；链接分析通过也不代表该源码已经通过编译和实机测试。
 
