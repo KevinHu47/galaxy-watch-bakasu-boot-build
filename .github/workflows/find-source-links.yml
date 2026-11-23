@@ -1,0 +1,47 @@
+name: Find Samsung source links
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: '手表型号，例如 SM-L315F'
+        required: true
+        type: string
+      firmware:
+        description: '完整固件版本，例如 L315FXXS3BZF4'
+        required: true
+        type: string
+      archive_item:
+        description: '可选：Archive.org 归档编号或详情链接。留空自动查询；三星搜索不可用时可填写例如 samsung-opensource-14120'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  find:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Find matching archive and ordered source links
+        id: links
+        env:
+          MODEL: ${{ inputs.model }}
+          FIRMWARE: ${{ inputs.firmware }}
+          ARCHIVE_ITEM: ${{ inputs.archive_item }}
+          PYTHONUNBUFFERED: '1'
+        run: python3 scripts/find_source_links.py --output dist/source-links
+
+      - name: Upload source links and analysis report
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: samsung-source-links-${{ github.run_id }}
+          path: dist/source-links/
+          if-no-files-found: warn
