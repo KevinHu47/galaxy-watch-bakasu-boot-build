@@ -127,6 +127,33 @@ class BuildDefinition:
         return target, list(dict.fromkeys(paths))
 
 
+def read_symbol_list(path: Path) -> tuple[set[str], str]:
+    """Read a libabigail INI list or an unsectioned one-symbol-per-line list."""
+    text = path.read_text(encoding='utf-8-sig')
+    lines = [(number, line.strip()) for number, line in enumerate(text.splitlines(), 1)
+             if line.strip() and not line.lstrip().startswith(('#', ';'))]
+    if lines and lines[0][1].startswith('['):
+        # Use a fresh parser for each file: a raw list must never inherit a
+        # preceding file's final section (which may be non-symbol metadata).
+        parser = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+        parser.optionxform = str
+        parser.read_string(text, source=str(path))
+        symbols = {symbol for section in parser.sections() if section.endswith(('whitelist', 'symbol_list'))
+                   for symbol in parser[section]}
+        format_name = 'libabigail'
+    else:
+        symbols = set()
+        for number, symbol in lines:
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', symbol):
+                raise ValueError(f'Invalid GW8 ABI symbol in {path}:{number}: {symbol!r}')
+            symbols.add(symbol)
+        format_name = 'raw'
+    for symbol in symbols:
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', symbol):
+            raise ValueError(f'Invalid GW8 ABI symbol in {path}: {symbol!r}')
+    return symbols, format_name
+
+
 def prepare_abi_symbols(source: Path, output: Path, report_path: Path) -> dict:
     config = read_config(output / '.config')
     name = ast.literal_eval(config.get('CONFIG_UNUSED_KSYMS_WHITELIST', '""'))
@@ -143,20 +170,19 @@ def prepare_abi_symbols(source: Path, output: Path, report_path: Path) -> dict:
         raise ValueError('GW8 generated ABI whitelist must be inside the output directory')
     definition = BuildDefinition(source)
     target, paths = definition.symbol_lists(config)
-    # Match Kleaf flatten_symbol_list: preserve case, combine matching INI
-    # sections, sort and deduplicate. Never modify the original source lists.
-    parser = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
-    parser.optionxform = str
+    # Preserve case and flatten each list independently. Samsung's input set
+    # mixes libabigail INI and raw lists (e.g. Tuxera); never edit either source.
+    symbols = set()
     inputs = []
     for path in paths:
         if not path.is_file():
             raise ValueError(f'GW8 ABI symbol list is missing: {path}')
-        parser.read_string(path.read_text(encoding='utf-8'), source=str(path))
-        inputs.append({'path': path.relative_to(definition.source).as_posix(), 'sha256': sha256(path)})
-    symbols = {symbol for section in parser.sections() if section.endswith(('whitelist', 'symbol_list'))
-               for symbol in parser[section]}
-    if not symbols or any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', symbol) for symbol in symbols):
-        raise ValueError('GW8 ABI inputs contain no symbols or contain invalid symbol names')
+        entries, format_name = read_symbol_list(path)
+        symbols.update(entries)
+        inputs.append({'path': path.relative_to(definition.source).as_posix(), 'sha256': sha256(path),
+                       'format': format_name, 'symbol_count': len(entries)})
+    if not symbols:
+        raise ValueError('GW8 ABI inputs contain no symbols')
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_text(''.join(symbol + '\n' for symbol in sorted(symbols)), encoding='utf-8', newline='\n')
     report.update({'generated': True, 'target': target, 'build_file_sha256': sha256(definition.path),

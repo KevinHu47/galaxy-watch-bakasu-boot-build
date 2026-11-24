@@ -25,9 +25,9 @@ Actions 中选择 **Build Galaxy Watch 8 BakaSU boot**，对应 `.github/workflo
 
 原 boot 配置中的 `CONFIG_UNUSED_KSYMS_WHITELIST="abi_symbollist.raw"` 指向构建时生成的文件。三星原 Kleaf 流程会合并 GKI 主符号列表和附加厂商列表，再展平成排序、去重的原始符号名。直接执行 `make Image modules` 时必须先补齐这一步，否则会报 `No rule to make target 'abi_symbollist.raw'`。
 
-GW8 编译脚本在 `olddefconfig` 和配置核对后、`make prepare` 前完成生成。列表路径取自这次输入源码的 GKI 构建定义，输出位置取自这次内核配置；不会写死固件版本或在线下载另一版本的符号列表。`CONFIG_MODULE_SIG_PROTECT`、`CONFIG_TRIM_UNUSED_KSYMS` 和原厂模块证书保持原有处理。缺少声明的源列表、符号为空或遇到尚未适配的动态 BUILD 表达式时提前报错，不用空文件绕过。
+GW8 编译脚本在 `olddefconfig` 和配置核对后、`make prepare` 前完成生成。列表路径取自这次输入源码的 GKI 构建定义，输出位置取自这次内核配置；不会写死固件版本或在线下载另一版本的符号列表。兼容带 `[abi_symbol_list]`／`[abi_whitelist]` 分节头的 libabigail 列表，以及 `abi_gki_aarch64_tuxera` 这种无分节头、每行一个符号的纯文本列表；逐文件独立解析后合并，保留大小写，排序去重，支持注释、空行、CRLF 和 UTF-8 BOM。`CONFIG_MODULE_SIG_PROTECT`、`CONFIG_TRIM_UNUSED_KSYMS` 和原厂模块证书保持原有处理。缺少声明的源列表、符号为空或遇到尚未适配的动态 BUILD 表达式时提前报错，不用空文件绕过。
 
-额外的 `abi-symbols-gw8.json` 会随 artifact 上传，记录所用 GKI 目标、源列表路径及 SHA-256、输出符号数和 SHA-256，方便后续核对。共用收集脚本仅增加了对此可选报告的复制；GW7 不调用 ABI 生成脚本。
+额外的 `abi-symbols-gw8.json` 会随 artifact 上传，记录所用 GKI 目标、每份源列表路径、格式、符号数及 SHA-256，以及输出符号数和 SHA-256，方便后续核对。共用收集脚本仅增加了对此可选报告的复制；GW7 不调用 ABI 生成脚本。
 
 ## 版本号与系统更新
 

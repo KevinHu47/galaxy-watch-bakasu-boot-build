@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import compile_kernel_gw8
-from abi_symbols_gw8 import BuildDefinition, prepare_abi_symbols
+from abi_symbols_gw8 import BuildDefinition, prepare_abi_symbols, read_symbol_list
 from collect_results import collect
 from common import sha256
 
@@ -82,6 +82,56 @@ class AbiSymbolsGw8Tests(unittest.TestCase):
         report = self.generate()
         self.assertEqual(report['output'], 'generated/kmi.raw')
         self.assertIn('future_firmware_symbol\n', (self.output / report['output']).read_text())
+
+    def test_tuxera_raw_list_is_merged_alongside_sectioned_lists(self):
+        tuxera = self.source / 'android/abi_gki_aarch64_tuxera'
+        tuxera.write_bytes(b'__bforget\n__bh_read_batch\nbit_waitqueue\nShared\n__bforget\n')
+        (self.source / 'BUILD.bazel').write_text(BUILD.replace(
+            'srcs = _VENDOR_LISTS', 'srcs = _VENDOR_LISTS + ["android/abi_gki_aarch64_tuxera"]'))
+        source_hash = sha256(tuxera)
+        config = (self.output / '.config').read_bytes()
+        report = self.generate()
+        self.assertEqual((self.output / report['output']).read_bytes(),
+                         b'Shared\n__bforget\n__bh_read_batch\nanother_vendor\nbit_waitqueue\n'
+                         b'exynos_symbol\nmain_symbol\n')
+        entry = report['inputs'][-1]
+        self.assertEqual(entry['format'], 'raw')
+        self.assertEqual(entry['symbol_count'], 4)
+        self.assertEqual(entry['sha256'], source_hash)
+        self.assertEqual(sha256(tuxera), source_hash)
+        self.assertEqual((self.output / '.config').read_bytes(), config)
+
+    def test_raw_list_bom_comments_crlf_whitespace_and_case(self):
+        raw = self.source / 'android/abi_gki_aarch64_other'
+        raw.write_bytes(b'\xef\xbb\xbf# symbols\r\n ; comment\r\n\r\n  Symbol\t\r\n symbol\r\nSymbol\r\n')
+        self.assertEqual(read_symbol_list(raw), ({'Symbol', 'symbol'}, 'raw'))
+        report = self.generate()
+        self.assertIn(b'Symbol\n', (self.output / report['output']).read_bytes())
+
+    def test_raw_list_after_metadata_section_is_not_silently_ignored(self):
+        (self.source / 'android/abi_gki_aarch64_exynos').write_text(
+            '[abi_symbol_list]\nexynos_symbol\n[metadata]\nignored = yes\n')
+        (self.source / 'android/abi_gki_aarch64_other').write_text('__bforget\n')
+        report = self.generate()
+        symbols = (self.output / report['output']).read_text().splitlines()
+        self.assertIn('__bforget', symbols)
+        self.assertNotIn('ignored', symbols)
+
+    def test_all_raw_lists_work_without_any_section_headers(self):
+        for path in (self.source / 'android').iterdir():
+            path.write_text(f'# raw list\n{path.name}\nShared\n')
+        report = self.generate()
+        self.assertEqual(report['symbol_count'], 4)
+        self.assertTrue(all(row['format'] == 'raw' for row in report['inputs']))
+
+    def test_raw_list_invalid_line_is_rejected_with_file_and_line_number(self):
+        path = self.source / 'android/abi_gki_aarch64_other'
+        for invalid in ('bad symbol', 'name=value', '[broken'):
+            with self.subTest(invalid=invalid):
+                path.write_text(f'__bforget\n{invalid}\n')
+                with self.assertRaisesRegex(ValueError, r'abi_gki_aarch64_other:2:'):
+                    self.generate()
+                self.assertFalse((self.output / 'abi_symbollist.raw').exists())
 
     def test_selects_page_size_target_when_source_defines_it(self):
         with (self.output / '.config').open('a') as stream:
