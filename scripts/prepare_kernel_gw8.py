@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 from common import write_json
+from kernel_release import release_settings
 from prepare_kernel import (add_hooks, install_bakasu, prepare_config, prepare_toolchain,
                             read_assignments, read_config)
 
@@ -24,17 +25,7 @@ def build_settings(source: Path, stock: dict, stock_config: Path, source_manifes
     makefile = read_assignments(source / 'Makefile')
     version = '.'.join(makefile[key] for key in ('VERSION', 'PATCHLEVEL', 'SUBLEVEL')) + makefile.get('EXTRAVERSION', '')
     release = stock['kernel_release']
-    config_version = read_config(stock_config).get('CONFIG_LOCALVERSION', '""').strip('"')
-    file_version = ''.join(p.read_text().strip() for p in sorted(source.glob('localversion*'))
-                           if p.is_file() and '~' not in p.name)
-    prefix = version + file_version + config_version
-    if not release.startswith(prefix) or (len(release) > len(prefix) and release[len(prefix)].isdigit()):
-        raise ValueError(f'GW8 source version {prefix} differs from original boot {release}')
-    # Linux 6.6 no longer reads .scmversion. Pass the exact remaining original
-    # suffix as LOCALVERSION instead, preserving the recovered .config.
-    suffix = release[len(prefix):]
-    if not re.fullmatch(r'[A-Za-z0-9_.+\-]*', suffix):
-        raise ValueError('Invalid original kernel release suffix')
+    version_settings = release_settings(source, version, release, read_config(stock_config))
     workspace = source.parent
     soc_configs = []
     for path in (workspace / 'exynos/soc-series').glob('*/build.config.*'):
@@ -61,8 +52,7 @@ def build_settings(source: Path, stock: dict, stock_config: Path, source_manifes
     fragments = [row['path'] for package in manifest['packages']
                  for row in package['merge']['overwritten_files'] if '/arch/arm64/configs/' in row['path']]
     generation = re.search(r'-android\d+-(\d+)', release)
-    return {'device_family': 'galaxy-watch8', 'source': str(source), 'kernel_release': release,
-            'kernel_source_version': version, 'release_suffix': suffix,
+    return {**version_settings, 'device_family': 'galaxy-watch8', 'source': str(source),
             'branch': constants.get('BRANCH', ''), 'clang_version': constants.get('CLANG_VERSION', ''),
             'kmi_generation': generation.group(1) if generation else constants.get('KMI_GENERATION', ''),
             'target_soc': soc, 'target_build_variant': 'user', 'kconfig_environment': environment,

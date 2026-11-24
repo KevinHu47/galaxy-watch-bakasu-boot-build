@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 from common import sha256, write_json
+from kernel_release import configure_release_files
 from compile_kernel import check_config
 from module_trust import verify_module_trust
 
@@ -48,6 +49,7 @@ def main():
     if not source.resolve().is_relative_to((work / 'src').resolve()):
         raise ValueError('GW8 kernel source is outside the build workspace')
     env = build_environment(prepare)
+    configure_release_files(source, output, prepare['settings'])
     command = ['make', '-C', str(source), f'O={output}', 'ARCH=arm64', 'LLVM=1', 'LLVM_IAS=1']
     subprocess.run([*command, 'olddefconfig'], env=env, check=True)
     report = check_config(work / 'stock/stock.config', output / '.config', prepare['config_overrides'])

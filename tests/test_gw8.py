@@ -110,6 +110,20 @@ class Gw8Tests(unittest.TestCase):
         self.assertNotIn('AVB_PRIVATE_KEY_B64', env)
         self.assertNotIn('KBUILD_EXTMOD', env)
 
+    def test_samsung_page_size_suffix_stays_after_android_firmware_stamp(self):
+        self.merge(self.base_files())
+        config = self.root / 'stock.config'
+        original = 'CONFIG_LOCALVERSION="-4k"\nCONFIG_LOCALVERSION_AUTO=y\nCONFIG_ARM64_4K_PAGES=y\n'
+        config.write_text(original)
+        release = '6.6.89-android15-8-abL500XXS2AZF4-4k'
+        settings = build_settings(self.source, {'kernel_release': release}, config, self.root / 'manifest.json')
+        self.assertEqual(settings['kernel_release'], release)
+        self.assertEqual(settings['release_prepend'], '-android15-8-abL500XXS2AZF4')
+        self.assertEqual(settings['release_suffix'], '')
+        self.assertEqual(config.read_text(), original)
+        env = build_environment({'settings': settings, 'toolchain': {'root': '/tools'}}, {'PATH': '/usr/bin'})
+        self.assertEqual(env['LOCALVERSION'], '')
+
     def test_external_package_cannot_be_first(self):
         with self.assertRaisesRegex(ValueError, 'first GW8 package'):
             self.merge({'Kernel/exynos/device/erd/erd5535/Kconfig.ext': 'only device'})

@@ -1,6 +1,6 @@
 # Galaxy Watch 8 独立构建流程
 
-Actions 中选择 **Build Galaxy Watch 8 BakaSU boot**，对应 `.github/workflows/build-boot-gw8.yml`。原来的 `build-boot.yml` 及 GW7 源码处理、配置、编译脚本保持原样。
+Actions 中选择 **Build Galaxy Watch 8 BakaSU boot**，对应 `.github/workflows/build-boot-gw8.yml`。GW7 使用独立的 `build-boot-gw7.yml`；两套源码布局适配分别维护。
 
 输入和签名设置沿用现有流程：填写 Watch 8 原 boot 直链；源码链接按“完整基础包 → 型号 DTS 包 → 更新包”顺序，用英文分号分隔。BakaSU 仓库、commit、工具链地址可选。默认签名需要仓库 Secret `AVB_PRIVATE_KEY_B64`；不签名选项、签名及未签名镜像同时输出、LZ4 压缩均沿用当前仓库行为。只输出 boot，不生成独立 vbmeta.img。
 
@@ -12,12 +12,20 @@ Actions 中选择 **Build Galaxy Watch 8 BakaSU boot**，对应 `.github/workflo
 | --- | --- |
 | `scripts/source_archives_gw8.py` | 独立解压与包识别；保留 `src/kernel-6.6/`、`src/exynos/`、`src/prebuilts/` 等原始布局。第二个包可仅含外部设备文件；第三个包分别覆盖 GKI 和设备目录 |
 | `scripts/prepare_kernel_gw8.py` | 从 `build.config.common` 读取 Android 15 分支，从 `build.config.constants` 读取 clang，从 `exynos/soc-series/` 读取 SoC；确定外部 Kconfig 目录 |
-| `scripts/compile_kernel_gw8.py` | 给配置和编译阶段传入 `KCONFIG_EXT_PREFIX`、`KCONFIG_EXT_SOC_PREFIX`、`KCONFIG_EXT_MODULES_PREFIX`；通过 `LOCALVERSION` 保持原内核 release，适配 Linux 6.6 不读取 `.scmversion` 的行为 |
+| `scripts/compile_kernel_gw8.py` | 给配置和编译阶段传入外部 Kconfig 环境；调用共用版本处理保留原 boot 的完整 release，适配 Linux 6.6 不读取 `.scmversion` 的行为 |
 | `tests/test_gw8.py` | 仅做小型压缩包、配置解析、编译环境和 workflow 路径的测试，不下载工具链或编译内核 |
 
 这三个专用 Python 文件均在文件头标注 **Galaxy Watch 8 ONLY**。它们复用原脚本中的解压安全检查、文件复制、BakaSU 接入、配置修改、工具链下载、配置比较等函数，不修改这些原有函数。
 
-继续共用的文件包括 `common.py`、`boot_image.py`、`module_trust.py`、`collect_results.py`、`avbtool.py`。因此签名、官方模块证书恢复/核验和镜像输出行为与当前仓库一致。
+继续共用的文件包括 `kernel_release.py`、`common.py`、`boot_image.py`、`module_trust.py`、`collect_results.py`、`avbtool.py`。因此版本重建、签名、官方模块证书恢复/核验和镜像输出行为保持一致。
+
+## 版本号与系统更新
+
+GW7、GW8 均不固定 boot 固件版本、基础内核版本、Android/KMI 版本或页面大小。它们从输入 boot 提取完整 Linux release 和 `CONFIG_LOCALVERSION`，从源码 Makefile 读取基础版本，并核对二者匹配。
+
+例如 `6.6.89-android15-8-abL500XXS2AZF4-4k` 中，原配置为 `CONFIG_LOCALVERSION="-4k"`。共用版本脚本会把 `-android15-8-abL500XXS2AZF4` 写入**输出目录**的 `localversion.gw-boot`，使内核版本按“基础版本 → Android/固件标识 → 原配置后缀”排列；不把它拼成 `6.6.89-4k-android15-8-...`，也不修改原配置中的页面大小。
+
+原配置后缀在前的旧版本也会按输入顺序还原。以后更新系统，只需提供相互匹配的新 boot 和源码；Android/固件标识和页面大小均动态读取，最终 `kernelrelease` 仍须与输入 boot 完全一致。源码布局或 BakaSU 上游出现其他变化时可能仍需适配。
 
 ## 这组三个链接
 

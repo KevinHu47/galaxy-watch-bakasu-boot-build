@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 from common import sha256, write_json
+from kernel_release import configure_release_files
 from module_trust import verify_module_trust
 from prepare_kernel import read_config
 
@@ -65,6 +66,8 @@ def main():
                 'KCFLAGS': '-D__ANDROID_COMMON_KERNEL__'})
     for key in ('BUILD_NUMBER', 'KBUILD_OUTPUT', 'KCONFIG_CONFIG', 'LOCALVERSION', 'TARGET_PRODUCT'):
         env.pop(key, None)
+    env['LOCALVERSION'] = settings['release_suffix']
+    configure_release_files(source, output, settings)
     command = ['make', '-C', str(source), f'O={output}', 'ARCH=arm64', 'LLVM=1', 'LLVM_IAS=1']
     subprocess.run([*command, 'olddefconfig'], env=env, check=True)
     report = check_config(work / 'stock/stock.config', output / '.config', prepare['config_overrides'])
