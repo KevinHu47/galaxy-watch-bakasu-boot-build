@@ -1,4 +1,4 @@
-name: Build Galaxy Watch BakaSU boot
+name: Build Galaxy Watch 7 BakaSU boot
 
 on:
   workflow_dispatch:

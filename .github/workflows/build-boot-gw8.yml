@@ -1,4 +1,3 @@
-# Galaxy Watch 8 only. The original build-boot.yml remains the GW7 workflow.
 name: Build Galaxy Watch 8 BakaSU boot
 
 on:
