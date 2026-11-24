@@ -12,6 +12,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from abi_symbols_gw8 import prepare_abi_symbols
 from common import sha256, write_json
 from kernel_release import configure_release_files
 from compile_kernel import check_config
@@ -58,6 +59,7 @@ def main():
         raise ValueError('GW8 required root/stock settings changed; see config-check.json')
     if report['other_changes']:
         print('Additional GW8 Kconfig changes recorded:', ', '.join(report['other_changes']), flush=True)
+    prepare_abi_symbols(source, output, work / 'abi-symbols-gw8.json')
     subprocess.run([*command, 'prepare'], env=env, check=True)
     release = subprocess.check_output([*command, '--no-print-directory', '-s', 'kernelrelease'],
                                       env=env, text=True).strip().splitlines()[-1]

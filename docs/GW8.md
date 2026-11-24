@@ -13,11 +13,21 @@ Actions 中选择 **Build Galaxy Watch 8 BakaSU boot**，对应 `.github/workflo
 | `scripts/source_archives_gw8.py` | 独立解压与包识别；保留 `src/kernel-6.6/`、`src/exynos/`、`src/prebuilts/` 等原始布局。第二个包可仅含外部设备文件；第三个包分别覆盖 GKI 和设备目录 |
 | `scripts/prepare_kernel_gw8.py` | 从 `build.config.common` 读取 Android 15 分支，从 `build.config.constants` 读取 clang，从 `exynos/soc-series/` 读取 SoC；确定外部 Kconfig 目录 |
 | `scripts/compile_kernel_gw8.py` | 给配置和编译阶段传入外部 Kconfig 环境；调用共用版本处理保留原 boot 的完整 release，适配 Linux 6.6 不读取 `.scmversion` 的行为 |
+| `scripts/abi_symbols_gw8.py` | 根据输入源码 `BUILD.bazel` 中 GKI 目标的主 KMI 列表及附加 filegroup，生成原配置要求的原始 ABI 符号列表，补齐直接调用 make 时缺少的 Kleaf 步骤 |
 | `tests/test_gw8.py` | 仅做小型压缩包、配置解析、编译环境和 workflow 路径的测试，不下载工具链或编译内核 |
+| `tests/test_abi_symbols_gw8.py` | 用小型符号列表与模拟 make 验证 ABI 列表合并、保护配置保留和编译调用顺序，不运行编译器 |
 
-这三个专用 Python 文件均在文件头标注 **Galaxy Watch 8 ONLY**。它们复用原脚本中的解压安全检查、文件复制、BakaSU 接入、配置修改、工具链下载、配置比较等函数，不修改这些原有函数。
+这四个专用脚本均在文件头标注 **Galaxy Watch 8 ONLY**。它们复用原脚本中的解压安全检查、文件复制、BakaSU 接入、配置修改、工具链下载、配置比较等函数，不修改这些原有函数。
 
 继续共用的文件包括 `kernel_release.py`、`common.py`、`boot_image.py`、`module_trust.py`、`collect_results.py`、`avbtool.py`。因此版本重建、签名、官方模块证书恢复/核验和镜像输出行为保持一致。
+
+## ABI 符号列表
+
+原 boot 配置中的 `CONFIG_UNUSED_KSYMS_WHITELIST="abi_symbollist.raw"` 指向构建时生成的文件。三星原 Kleaf 流程会合并 GKI 主符号列表和附加厂商列表，再展平成排序、去重的原始符号名。直接执行 `make Image modules` 时必须先补齐这一步，否则会报 `No rule to make target 'abi_symbollist.raw'`。
+
+GW8 编译脚本在 `olddefconfig` 和配置核对后、`make prepare` 前完成生成。列表路径取自这次输入源码的 GKI 构建定义，输出位置取自这次内核配置；不会写死固件版本或在线下载另一版本的符号列表。`CONFIG_MODULE_SIG_PROTECT`、`CONFIG_TRIM_UNUSED_KSYMS` 和原厂模块证书保持原有处理。缺少声明的源列表、符号为空或遇到尚未适配的动态 BUILD 表达式时提前报错，不用空文件绕过。
+
+额外的 `abi-symbols-gw8.json` 会随 artifact 上传，记录所用 GKI 目标、源列表路径及 SHA-256、输出符号数和 SHA-256，方便后续核对。共用收集脚本仅增加了对此可选报告的复制；GW7 不调用 ABI 生成脚本。
 
 ## 版本号与系统更新
 

@@ -35,7 +35,7 @@ def verified_boot_report(source: Path, manifest: Path) -> dict | None:
 def collect(work: Path, destination: Path, summary: Path | None = None):
     destination.mkdir(parents=True, exist_ok=True)
     reports = ['source-manifest.json', 'bakasu.json', 'prepare.json', 'config-check.json',
-               'compile.json', 'module-trust.json']
+               'compile.json', 'module-trust.json', 'abi-symbols-gw8.json']
     for name in reports:
         if (work / name).is_file():
             shutil.copyfile(work / name, destination / name)
