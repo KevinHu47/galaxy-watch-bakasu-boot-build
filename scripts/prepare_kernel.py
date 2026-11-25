@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 
 from common import download, sha256, write_json
+from kernel_release import release_settings
 from source_archives import safe_extract
 
 DEFAULT_REPOSITORY = 'https://github.com/Baka-SU/BakaSU.git'
@@ -107,14 +108,7 @@ def build_settings(source: Path, stock: dict, stock_config: Path, source_manifes
     makefile = read_assignments(source / 'Makefile')
     version = '.'.join(makefile[key] for key in ('VERSION', 'PATCHLEVEL', 'SUBLEVEL')) + makefile.get('EXTRAVERSION', '')
     release = stock['kernel_release']
-    if not release.startswith(version) or (len(release) > len(version) and release[len(version)].isdigit()):
-        raise ValueError(f'Source kernel {version} does not match original boot kernel {release}; use matching sources')
-    config = read_config(stock_config)
-    localversion = config.get('CONFIG_LOCALVERSION', '""').strip('"')
-    if not release.startswith(version + localversion):
-        raise ValueError('Cannot reconstruct the original kernel release suffix')
-    suffix = release[len(version + localversion):]
-    (source / '.scmversion').write_text(suffix + '\n')
+    version_settings = release_settings(source, version, release, read_config(stock_config))
     # TARGET_PRODUCT only affected disabled DEFEX in the validated Samsung source tree.
     # Regions/screen sizes are retained in the original config and supplied
     # sources. No fixed product, region or screen size is imposed here.
@@ -131,8 +125,7 @@ def build_settings(source: Path, stock: dict, stock_config: Path, source_manifes
             if row['path'].startswith('arch/arm64/configs/'):
                 fragments.append(row['path'])
     generation = re.search(r'-android\d+-(\d+)', release)
-    return {'kernel_release': release, 'kernel_source_version': version,
-            'release_suffix': suffix, 'branch': constants.get('BRANCH', ''),
+    return {**version_settings, 'branch': constants.get('BRANCH', ''),
             'clang_version': constants.get('CLANG_VERSION', ''),
             'kmi_generation': generation.group(1) if generation else '',
             'target_soc': socs[0], 'target_build_variant': 'user',

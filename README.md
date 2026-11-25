@@ -4,6 +4,8 @@
 
 不同型号、地区、尺寸、蓝牙/LTE 版本请提供各自匹配的原厂 boot 和源码。构建使用原 boot 内核中提取的完整配置，保留模板头部与三星尾部；型号配置、SoC、内核版本、clang 版本从用户输入的源码与 boot 读取。
 
+GW7、GW8 都不固定某一固件、基础内核、Android/KMI 版本或 `-4k` 等后缀。共用的 `scripts/kernel_release.py` 根据输入 boot 的完整版本和原配置动态重建版本字符串，兼容原配置后缀位于 Android/固件标识之前或之后的情况。系统升级后请同时换用匹配的新 boot 和源码；仍会核对源码基础版本与原 boot，并要求最终 `kernelrelease` 完全一致。GW8 的独立流程见 [GW8 说明](docs/GW8.md)。
+
 ## 许可证
 
 本项目原创构建脚本、测试、工作流和文档采用 [GNU GPL v3](LICENSE)。随仓库提供的 `scripts/avbtool.py` 保留 AOSP 原有 MIT 许可证及版权声明，详见 [第三方许可说明](THIRD_PARTY_NOTICES.md)。构建时下载的三星内核、BakaSU、工具链和其他依赖分别适用其自身许可证。

@@ -30,7 +30,8 @@ class PrepareTests(unittest.TestCase):
             manifest.write_text(json.dumps({'packages': []}))
             settings = build_settings(source, {'kernel_release': '6.1.150-regional-android14-12'}, config, manifest)
             self.assertEqual(settings['release_suffix'], '-android14-12')
-            self.assertEqual((source / '.scmversion').read_text(), '-android14-12\n')
+            self.assertEqual(settings['release_prepend'], '')
+            self.assertFalse((source / '.scmversion').exists())
             self.assertEqual(settings['target_soc'], 's5e5535')
             self.assertNotIn('target_product', settings)
 
