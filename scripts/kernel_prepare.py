@@ -1,18 +1,13 @@
-#!/usr/bin/env python3
-"""Recover the original build configuration and integrate a selected BakaSU Git revision."""
+"""Shared BakaSU checkout, configuration and toolchain preparation helpers."""
 from __future__ import annotations
 
-import argparse
-import json
-import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
-from common import download, sha256, write_json
-from kernel_release import release_settings
-from source_archives import safe_extract
+from common import download
+from archive_utils import safe_extract
 
 DEFAULT_REPOSITORY = 'https://github.com/Baka-SU/BakaSU.git'
 OVERRIDES = {
@@ -47,7 +42,6 @@ def install_bakasu(source: Path, repository: str, revision: str) -> dict:
         raise ValueError('Source already contains BakaSU; use a clean source work directory')
     subprocess.run(['git', 'clone', '--no-checkout', '--', repository, str(target)], check=True)
     if revision:
-        # Fetch also allows an explicit reachable commit not named by a branch.
         subprocess.run(['git', '-C', str(target), 'fetch', 'origin', revision], check=True)
         selected = 'FETCH_HEAD'
     else:
@@ -103,35 +97,6 @@ def add_hooks(source: Path):
         path.write_text(text.replace('endmenu', line + '\nendmenu', 1))
 
 
-def build_settings(source: Path, stock: dict, stock_config: Path, source_manifest: Path) -> dict:
-    constants = read_assignments(source / 'build.config.constants')
-    makefile = read_assignments(source / 'Makefile')
-    version = '.'.join(makefile[key] for key in ('VERSION', 'PATCHLEVEL', 'SUBLEVEL')) + makefile.get('EXTRAVERSION', '')
-    release = stock['kernel_release']
-    version_settings = release_settings(source, version, release, read_config(stock_config))
-    # TARGET_PRODUCT only affected disabled DEFEX in the validated Samsung source tree.
-    # Regions/screen sizes are retained in the original config and supplied
-    # sources. No fixed product, region or screen size is imposed here.
-    projects = source.parent / 'projects'
-    socs = sorted({value for p in projects.glob('*/build.config.*.common')
-                   if re.fullmatch(r'[a-zA-Z0-9_]+', value := read_assignments(p).get('TARGET_SOC', ''))})
-    if len(socs) != 1:
-        raise ValueError('Cannot determine one TARGET_SOC from source projects/*/build.config.*.common')
-    # Log model-specific configuration fragments contributed by input overlays.
-    manifest = json.loads(source_manifest.read_text())
-    fragments = []
-    for package in manifest['packages']:
-        for row in package['merge']['kernel']['overwritten_files']:
-            if row['path'].startswith('arch/arm64/configs/'):
-                fragments.append(row['path'])
-    generation = re.search(r'-android\d+-(\d+)', release)
-    return {**version_settings, 'branch': constants.get('BRANCH', ''),
-            'clang_version': constants.get('CLANG_VERSION', ''),
-            'kmi_generation': generation.group(1) if generation else '',
-            'target_soc': socs[0], 'target_build_variant': 'user',
-            'model_config_fragments_from_overlays': fragments}
-
-
 def prepare_toolchain(source: Path, work: Path, settings: dict, override: str) -> dict:
     version = settings['clang_version']
     if not re.fullmatch(r'r[0-9]+[a-z0-9-]*', version):
@@ -151,7 +116,7 @@ def prepare_toolchain(source: Path, work: Path, settings: dict, override: str) -
     root = candidates[0]
     result = subprocess.check_output([str(root / 'bin/clang'), '--version'], text=True)
     print(result, flush=True)
-    (work / 'clang.archive').unlink()  # Its identity is retained; free runner disk for BTF/swap.
+    (work / 'clang.archive').unlink()
     return {**identity, 'root': str(root), 'version_output': result.strip(), 'source_clang_version': version}
 
 
@@ -171,35 +136,3 @@ def prepare_config(source: Path, stock_dir: Path, output: Path) -> dict:
             args.extend(['--set-str', name, value])
     subprocess.run(args, check=True)
     return overrides
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, required=True)
-    parser.add_argument('--work', type=Path, required=True)
-    parser.add_argument('--stock-dir', type=Path, required=True)
-    parser.add_argument('--source-manifest', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--repository', default=os.environ.get('BAKASU_REPOSITORY', ''))
-    parser.add_argument('--ref', default=os.environ.get('BAKASU_REF', ''))
-    parser.add_argument('--toolchain-url', default=os.environ.get('TOOLCHAIN_URL', ''))
-    args = parser.parse_args()
-    stock = json.loads((args.stock_dir / 'stock-boot.json').read_text())
-    settings = build_settings(args.source, stock, args.stock_dir / 'stock.config', args.source_manifest)
-    bakasu = install_bakasu(args.source, args.repository, args.ref)
-    # Write the resolved commit immediately, so it is retained if compilation fails.
-    write_json(args.work / 'bakasu.json', bakasu)
-    add_hooks(args.source)
-    overrides = prepare_config(args.source, args.stock_dir, args.output)
-    toolchain = prepare_toolchain(args.source, args.work, settings, args.toolchain_url)
-    manifest = {'settings': settings, 'bakasu': bakasu, 'toolchain': toolchain,
-                'config_overrides': overrides}
-    write_json(args.work / 'prepare.json', manifest)
-    if os.environ.get('GITHUB_OUTPUT'):
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
-            stream.write(f'bakasu_commit={bakasu["commit"]}\n')
-    print(f'Prepared original configuration for {settings["kernel_release"]}; SoC {settings["target_soc"]}')
-
-
-if __name__ == '__main__':
-    main()

@@ -4,6 +4,10 @@
 
 不同型号、地区、尺寸、蓝牙/LTE 版本请提供各自匹配的原厂 boot 和源码。构建使用原 boot 内核中提取的完整配置，保留模板头部与三星尾部；型号配置、SoC、内核版本、clang 版本从用户输入的源码与 boot 读取。
 
+## 脚本布局
+
+`scripts/` 根目录只放 GW7、GW8 共用的 Python 脚本：镜像处理、版本号重建、模块证书核验、结果收集、源码链接查询，以及安全归档解压、BakaSU/工具链准备和配置校验等辅助模块。机型入口按目录区分：`scripts/gw7/` 和 `scripts/gw8/` 分别包含 `source_archives.py`、`prepare_kernel.py`、`compile_kernel.py`；GW8 另外包含 `abi_symbols.py`。机型目录中的脚本文件名不再重复 `gw7` 或 `gw8`，工作流直接调用对应目录即可。
+
 GW7、GW8 都不固定某一固件、基础内核、Android/KMI 版本或 `-4k` 等后缀。共用的 `scripts/kernel_release.py` 根据输入 boot 的完整版本和原配置动态重建版本字符串，兼容原配置后缀位于 Android/固件标识之前或之后的情况。系统升级后请同时换用匹配的新 boot 和源码；仍会核对源码基础版本与原 boot，并要求最终 `kernelrelease` 完全一致。GW8 的独立流程见 [GW8 说明](docs/GW8.md)。
 
 ## 许可证
@@ -216,13 +220,13 @@ BZF4-update.zip
 完成后从该次运行的 **Artifacts** 下载。默认签名构建的压缩包名称不带签名标记：
 
 ```text
-gw-boot-<BakaSU commit前12位>-<run id>.zip
+gw7_boot-<BakaSU commit前12位>-<run id>.zip
 ```
 
 勾选「不签名」时，压缩包名称带 `unsign`：
 
 ```text
-gw-boot-<BakaSU commit前12位>-unsign-<run id>.zip
+gw7_boot-<BakaSU commit前12位>-unsign-<run id>.zip
 ```
 
 其中包括：

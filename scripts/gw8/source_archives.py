@@ -12,8 +12,12 @@ import re
 import tempfile
 from pathlib import Path
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from archive_utils import archive_kind, merge_tree, safe_extract
 from common import download, sha256, write_json
-from source_archives import archive_kind, merge_tree, safe_extract
 
 
 def find_package(staging: Path) -> tuple[Path, Path | None, str] | None:

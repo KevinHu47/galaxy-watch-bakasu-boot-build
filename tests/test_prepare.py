@@ -8,8 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from prepare_kernel import build_settings, install_bakasu, repository_url
-from compile_kernel import check_config
+from gw7.prepare_kernel import build_settings
+from kernel_prepare import install_bakasu, repository_url
+from kernel_build import check_config
 
 
 class PrepareTests(unittest.TestCase):
@@ -69,7 +70,7 @@ class PrepareTests(unittest.TestCase):
                 subprocess.run(['git', '-C', str(origin), 'commit', '-q', '-m', value], env=env, check=True)
                 commits.append(subprocess.check_output(['git', '-C', str(origin), 'rev-parse', 'HEAD'], text=True).strip())
             # Use a local Git server fixture while retaining the production URL validator.
-            with patch('prepare_kernel.repository_url', return_value=str(origin)):
+            with patch('kernel_prepare.repository_url', return_value=str(origin)):
                 for name, revision, expected in [('latest', '', commits[1]), ('pinned', commits[0], commits[0])]:
                     source = root / name
                     source.mkdir()

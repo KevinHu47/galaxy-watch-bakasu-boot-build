@@ -7,8 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-import compile_kernel_gw8
-from abi_symbols_gw8 import BuildDefinition, prepare_abi_symbols, read_symbol_list
+from gw8 import compile_kernel
+from gw8.abi_symbols import BuildDefinition, prepare_abi_symbols, read_symbol_list
 from collect_results import collect
 from common import sha256
 
@@ -215,15 +215,16 @@ kernel_build(name = "kernel_aarch64", kmi_symbol_list = "android/abi_gki_aarch64
                 image.write_bytes(b'test image')
                 (self.output / 'System.map').write_text('test ksu_symbol\n')
 
-        with (patch.object(sys, 'argv', ['compile_kernel_gw8.py', '--work', str(self.work), '--jobs', '2']),
-              patch.object(compile_kernel_gw8, 'build_environment', return_value={}),
-              patch.object(compile_kernel_gw8, 'configure_release_files'),
-              patch.object(compile_kernel_gw8, 'check_config', return_value={'passed': True, 'other_changes': {}}),
-              patch.object(compile_kernel_gw8.subprocess, 'run', side_effect=make_stub),
-              patch.object(compile_kernel_gw8.subprocess, 'check_output', return_value='test-release\n'),
-              patch.object(compile_kernel_gw8, 'verify_module_trust', return_value={'passed': True})):
-            compile_kernel_gw8.main()
-        self.assertEqual([command[-1] for command in calls], ['olddefconfig', 'prepare', 'modules'])
+        with (patch.object(sys, 'argv', ['compile_kernel.py', '--work', str(self.work), '--jobs', '2']),
+              patch.object(compile_kernel, 'build_environment', return_value={}),
+              patch.object(compile_kernel, 'configure_release_files'),
+              patch.object(compile_kernel, 'check_config', return_value={'passed': True, 'other_changes': {}}),
+              patch.object(compile_kernel.subprocess, 'run', side_effect=make_stub),
+              patch.object(compile_kernel.subprocess, 'check_output', return_value='test-release\n'),
+              patch.object(compile_kernel, 'verify_module_trust', return_value={'passed': True})):
+            compile_kernel.main()
+        self.assertEqual([command[-1] for command in calls],
+                         ['olddefconfig', 'prepare', 'prepare', 'modules'])
         self.assertEqual(calls[-1][-3:], ['-j2', 'Image', 'modules'])
 
     def test_new_report_is_collected_even_when_later_compilation_fails(self):

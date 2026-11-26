@@ -10,14 +10,14 @@ Actions 中选择 **Build Galaxy Watch 8 BakaSU boot**，对应 `.github/workflo
 
 | 文件 | 处理内容 |
 | --- | --- |
-| `scripts/source_archives_gw8.py` | 独立解压与包识别；保留 `src/kernel-6.6/`、`src/exynos/`、`src/prebuilts/` 等原始布局。第二个包可仅含外部设备文件；第三个包分别覆盖 GKI 和设备目录 |
-| `scripts/prepare_kernel_gw8.py` | 从 `build.config.common` 读取 Android 15 分支，从 `build.config.constants` 读取 clang，从 `exynos/soc-series/` 读取 SoC；确定外部 Kconfig 目录 |
-| `scripts/compile_kernel_gw8.py` | 给配置和编译阶段传入外部 Kconfig 环境；调用共用版本处理保留原 boot 的完整 release，适配 Linux 6.6 不读取 `.scmversion` 的行为 |
-| `scripts/abi_symbols_gw8.py` | 根据输入源码 `BUILD.bazel` 中 GKI 目标的主 KMI 列表及附加 filegroup，生成原配置要求的原始 ABI 符号列表，补齐直接调用 make 时缺少的 Kleaf 步骤 |
+| `scripts/gw8/source_archives.py` | 独立解压与包识别；保留 `src/kernel-6.6/`、`src/exynos/`、`src/prebuilts/` 等原始布局。第二个包可仅含外部设备文件；第三个包分别覆盖 GKI 和设备目录 |
+| `scripts/gw8/prepare_kernel.py` | 从 `build.config.common` 读取 Android 15 分支，从 `build.config.constants` 读取 clang，从 `exynos/soc-series/` 读取 SoC；确定外部 Kconfig 目录 |
+| `scripts/gw8/compile_kernel.py` | 给配置和编译阶段传入外部 Kconfig 环境；调用共用版本处理保留原 boot 的完整 release，适配 Linux 6.6 不读取 `.scmversion` 的行为 |
+| `scripts/gw8/abi_symbols.py` | 根据输入源码 `BUILD.bazel` 中 GKI 目标的主 KMI 列表及附加 filegroup，生成原配置要求的原始 ABI 符号列表，补齐直接调用 make 时缺少的 Kleaf 步骤 |
 | `tests/test_gw8.py` | 仅做小型压缩包、配置解析、编译环境和 workflow 路径的测试，不下载工具链或编译内核 |
 | `tests/test_abi_symbols_gw8.py` | 用小型符号列表与模拟 make 验证 ABI 列表合并、保护配置保留和编译调用顺序，不运行编译器 |
 
-这四个专用脚本均在文件头标注 **Galaxy Watch 8 ONLY**。它们复用原脚本中的解压安全检查、文件复制、BakaSU 接入、配置修改、工具链下载、配置比较等函数，不修改这些原有函数。
+这四个专用脚本均在文件头标注 **Galaxy Watch 8 ONLY**。`scripts/` 根目录只放跨机型脚本：`archive_utils.py`（安全解压与文件合并）、`kernel_prepare.py`（BakaSU、配置和工具链准备）、`kernel_build.py`（配置校验），以及版本、镜像、结果和证书处理脚本。`scripts/gw7/` 和 `scripts/gw8/` 只放对应机型的源码布局、准备和编译入口；调用时无需在文件名中重复 `gw7` 或 `gw8`。
 
 继续共用的文件包括 `kernel_release.py`、`common.py`、`boot_image.py`、`module_trust.py`、`collect_results.py`、`avbtool.py`。因此版本重建、签名、官方模块证书恢复/核验和镜像输出行为保持一致。
 
@@ -27,7 +27,7 @@ Actions 中选择 **Build Galaxy Watch 8 BakaSU boot**，对应 `.github/workflo
 
 GW8 编译脚本在 `olddefconfig` 和配置核对后、`make prepare` 前完成生成。列表路径取自这次输入源码的 GKI 构建定义，输出位置取自这次内核配置；不会写死固件版本或在线下载另一版本的符号列表。兼容带 `[abi_symbol_list]`／`[abi_whitelist]` 分节头的 libabigail 列表，以及 `abi_gki_aarch64_tuxera` 这种无分节头、每行一个符号的纯文本列表；逐文件独立解析后合并，保留大小写，排序去重，支持注释、空行、CRLF 和 UTF-8 BOM。`CONFIG_MODULE_SIG_PROTECT`、`CONFIG_TRIM_UNUSED_KSYMS` 和原厂模块证书保持原有处理。缺少声明的源列表、符号为空或遇到尚未适配的动态 BUILD 表达式时提前报错，不用空文件绕过。
 
-额外的 `abi-symbols-gw8.json` 会随 artifact 上传，记录所用 GKI 目标、每份源列表路径、格式、符号数及 SHA-256，以及输出符号数和 SHA-256，方便后续核对。共用收集脚本仅增加了对此可选报告的复制；GW7 不调用 ABI 生成脚本。
+额外的 `abi-symbols-gw8.json` 会随 artifact 上传，记录所用 GKI 目标、每份源列表路径、格式、符号数及 SHA-256，以及输出符号数和 SHA-256，方便后续核对。GW8 Artifact 压缩包以 `gw8_boot-` 开头；共用收集脚本仅增加了对此可选报告的复制；GW7 不调用 ABI 生成脚本，GW7 Artifact 以 `gw7_boot-` 开头。
 
 ## 版本号与系统更新
 
@@ -57,6 +57,6 @@ src/
 └── prebuilts/                       # 配套固件
 ```
 
-`kernel-6.6/` 与基础包中的 `kernel/tests/` 是两个不同目录，GW8 流程不会把它们折叠成一棵 `src/kernel/`。工作目录为 `work/gw8-build`，产物为 `dist/gw8`，artifact 名称以 `gw8-` 开头。
+`kernel-6.6/` 与基础包中的 `kernel/tests/` 是两个不同目录，GW8 流程不会把它们折叠成一棵 `src/kernel/`。工作目录为 `work/gw8-build`，产物为 `dist/gw8`，Artifact 名称以 `gw8_` 开头。
 
 本次只做源码布局、配置和 workflow 适配及轻量验证，不在本机运行内核编译。云端全量编译和设备启动结果待实际测试。

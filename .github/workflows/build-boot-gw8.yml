@@ -40,7 +40,7 @@ jobs:
       run:
         shell: bash
     env:
-      WORK: ${{ github.workspace }}/work/gw8-build
+      WORK: /tmp/gw8-build
       DIST: ${{ github.workspace }}/dist/gw8
       PYTHONUNBUFFERED: '1'
       GIT_TERMINAL_PROMPT: '0'
@@ -102,7 +102,7 @@ jobs:
         env:
           SOURCE_URLS: ${{ inputs.source_urls }}
         run: |
-          python3 scripts/source_archives_gw8.py \
+          python3 scripts/gw8/source_archives.py \
             --output "$WORK/src" \
             --manifest "$WORK/source-manifest.json" \
             --downloads "$WORK/downloads"
@@ -114,10 +114,10 @@ jobs:
           BAKASU_REF: ${{ inputs.bakasu_ref }}
           TOOLCHAIN_URL: ${{ inputs.toolchain_url }}
         run: |
-          python3 scripts/prepare_kernel_gw8.py --work "$WORK"
+          python3 scripts/gw8/prepare_kernel.py --work "$WORK"
 
       - name: Compile BakaSU Image and modules
-        run: python3 scripts/compile_kernel_gw8.py --work "$WORK" --jobs "$(nproc)"
+        run: python3 scripts/gw8/compile_kernel.py --work "$WORK" --jobs "$(nproc)"
 
       - name: Package, sign and verify boot
         env:
@@ -148,7 +148,7 @@ jobs:
         if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ format('gw8-{0}', steps.results.outputs.artifact_name || github.run_id) }}
+          name: ${{ format('gw8_{0}', steps.results.outputs.artifact_name || format('build-reports-{0}', github.run_id)) }}
           path: dist/gw8/
           if-no-files-found: warn
           compression-level: 6

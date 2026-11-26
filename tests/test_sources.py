@@ -7,7 +7,8 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from source_archives import merge_archives, safe_extract
+from gw7.source_archives import merge_archives
+from archive_utils import safe_extract
 
 
 def make_tar(files, *, links=None):

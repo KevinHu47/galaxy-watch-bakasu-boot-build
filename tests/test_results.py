@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import lz4.frame
 
@@ -22,7 +23,10 @@ class ResultsTests(unittest.TestCase):
             (work / 'boot.img').write_bytes(b'boot')
             (work / 'bakasu.json').write_text(json.dumps({'commit': 'a' * 40, 'repository': 'test'}))
             (work / 'boot-manifest.json').write_text(json.dumps({'verification': {'signed': False}}))
-            collect(work, output, root / 'summary.md')
+            github_output = root / 'github-output.txt'
+            with patch.dict('os.environ', {'GITHUB_OUTPUT': str(github_output), 'GITHUB_RUN_ID': '123'}):
+                collect(work, output, root / 'summary.md')
+            self.assertEqual(github_output.read_text(), 'artifact_name=boot-aaaaaaaaaaaa-unsign-123\n')
             self.assertIn('unsigned', (output / 'BUILD.txt').read_text())
             self.assertIn('BUILD.txt', (output / 'SHA256SUMS').read_text())
             self.assertIn('boot-unsign.img', (output / 'SHA256SUMS').read_text())

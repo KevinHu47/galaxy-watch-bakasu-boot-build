@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from kernel_release import STAMP_FILE, configure_release_files, release_settings
+from kernel_release import STAMP_FILE, configure_release_files, localversion_residual, release_settings
 
 
 class KernelReleaseTests(unittest.TestCase):
@@ -24,6 +24,16 @@ class KernelReleaseTests(unittest.TestCase):
                 self.assertEqual(result['kernel_source_version'], version)
                 self.assertEqual(result['release_suffix'], stamp)
                 self.assertEqual(result['release_prepend'], '')
+
+    def test_localversion_residual_uses_source_probe_instead_of_fixed_android_suffix(self):
+        self.assertEqual(localversion_residual(
+            '6.1.134', '6.1.134-android14-11', '6.1.134-android14-11'), '')
+        self.assertEqual(localversion_residual(
+            '6.6.89', '6.6.89-android15-8', '6.6.89'),
+            '-android15-8')
+        with self.assertRaises(ValueError):
+            localversion_residual('6.1.134', '6.1.134-android14-11',
+                                  '6.1.134-android14-11-gdeadbeef')
 
     def test_page_size_is_preserved_without_pin_to_4k(self):
         for page in ('-4k', '-16k', '-64k'):
