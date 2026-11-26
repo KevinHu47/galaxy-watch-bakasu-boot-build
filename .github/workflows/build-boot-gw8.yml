@@ -40,7 +40,7 @@ jobs:
       run:
         shell: bash
     env:
-      WORK: ${{ runner.temp }}/gw8-build
+      WORK: /tmp/gw8-build
       DIST: ${{ github.workspace }}/dist/gw8
       PYTHONUNBUFFERED: '1'
       GIT_TERMINAL_PROMPT: '0'
