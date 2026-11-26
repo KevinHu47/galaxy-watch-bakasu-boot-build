@@ -55,6 +55,9 @@ def main():
     prepare_abi_symbols(source, output, work / 'abi-symbols-gw8.json')
     release_detection = None
     release = None
+    source_version = prepare['settings'].get('kernel_source_version')
+    if not source_version:
+        source_version = prepare['settings']['kernel_release'].split('-', 1)[0]
     for include_prepend in ([False, True] if prepare['settings'].get('release_prepend') else [False]):
         configure_release_files(source, output, prepare['settings'], include_prepend=include_prepend)
         env['LOCALVERSION'] = ''
@@ -69,7 +72,7 @@ def main():
         probe = subprocess.check_output([*command, '--no-print-directory', '-s', 'kernelrelease'],
                                         env=env, text=True).strip().splitlines()[-1]
         try:
-            residual = localversion_residual(prepare['settings']['kernel_source_version'],
+            residual = localversion_residual(source_version,
                                              prepare['settings']['kernel_release'], probe)
         except ValueError:
             continue
@@ -80,7 +83,7 @@ def main():
         if release == prepare['settings']['kernel_release']:
             release_detection = {'probe': probe, 'include_prepend': include_prepend,
                                  'localversion': residual,
-                                 'git_ceiling_directories': env['GIT_CEILING_DIRECTORIES']}
+                                 'git_ceiling_directories': env.get('GIT_CEILING_DIRECTORIES', '')}
             break
     if release != prepare['settings']['kernel_release']:
         raise ValueError(f'GW8 release {release!r} differs from original {prepare["settings"]["kernel_release"]!r}')

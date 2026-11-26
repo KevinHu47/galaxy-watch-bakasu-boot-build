@@ -223,7 +223,8 @@ kernel_build(name = "kernel_aarch64", kmi_symbol_list = "android/abi_gki_aarch64
               patch.object(compile_kernel_gw8.subprocess, 'check_output', return_value='test-release\n'),
               patch.object(compile_kernel_gw8, 'verify_module_trust', return_value={'passed': True})):
             compile_kernel_gw8.main()
-        self.assertEqual([command[-1] for command in calls], ['olddefconfig', 'prepare', 'modules'])
+        self.assertEqual([command[-1] for command in calls],
+                         ['olddefconfig', 'prepare', 'prepare', 'modules'])
         self.assertEqual(calls[-1][-3:], ['-j2', 'Image', 'modules'])
 
     def test_new_report_is_collected_even_when_later_compilation_fails(self):

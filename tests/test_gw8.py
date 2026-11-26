@@ -146,7 +146,8 @@ class Gw8Tests(unittest.TestCase):
             self.assertIn(filename, workflow)
         self.assertNotIn('python3 scripts/compile_kernel.py', workflow)
         self.assertIn('--output "$WORK/src"', workflow)
-        self.assertIn('work/gw8-build', workflow)
+        self.assertIn('gw8-build', workflow)
+        self.assertIn('runner.temp', workflow)
         self.assertIn('dist/gw8/', workflow)
         # Generic boot packaging and module trust remain shared unchanged.
         self.assertIn('python3 scripts/boot_image.py pack', workflow)
