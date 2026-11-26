@@ -102,7 +102,7 @@ jobs:
         env:
           SOURCE_URLS: ${{ inputs.source_urls }}
         run: |
-          python3 scripts/source_archives.py \
+          python3 scripts/gw7/source_archives.py \
             --output "$WORK/src/kernel" \
             --manifest "$WORK/source-manifest.json" \
             --downloads "$WORK/downloads"
@@ -114,7 +114,7 @@ jobs:
           BAKASU_REF: ${{ inputs.bakasu_ref }}
           TOOLCHAIN_URL: ${{ inputs.toolchain_url }}
         run: |
-          python3 scripts/prepare_kernel.py \
+          python3 scripts/gw7/prepare_kernel.py \
             --source "$WORK/src/kernel" \
             --work "$WORK" \
             --stock-dir "$WORK/stock" \
@@ -122,7 +122,7 @@ jobs:
             --output "$WORK/out"
 
       - name: Compile BakaSU Image and modules
-        run: python3 scripts/compile_kernel.py --work "$WORK" --jobs "$(nproc)"
+        run: python3 scripts/gw7/compile_kernel.py --work "$WORK" --jobs "$(nproc)"
 
       - name: Package, sign and verify boot
         env:

@@ -10,12 +10,15 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
-from abi_symbols_gw8 import prepare_abi_symbols
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from gw8.abi_symbols import prepare_abi_symbols
 from common import sha256, write_json
 from kernel_release import configure_release_files, localversion_residual
-from compile_kernel import check_config
+from kernel_build import check_config
 from module_trust import verify_module_trust
 
 

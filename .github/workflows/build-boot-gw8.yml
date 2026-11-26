@@ -102,7 +102,7 @@ jobs:
         env:
           SOURCE_URLS: ${{ inputs.source_urls }}
         run: |
-          python3 scripts/source_archives_gw8.py \
+          python3 scripts/gw8/source_archives.py \
             --output "$WORK/src" \
             --manifest "$WORK/source-manifest.json" \
             --downloads "$WORK/downloads"
@@ -114,10 +114,10 @@ jobs:
           BAKASU_REF: ${{ inputs.bakasu_ref }}
           TOOLCHAIN_URL: ${{ inputs.toolchain_url }}
         run: |
-          python3 scripts/prepare_kernel_gw8.py --work "$WORK"
+          python3 scripts/gw8/prepare_kernel.py --work "$WORK"
 
       - name: Compile BakaSU Image and modules
-        run: python3 scripts/compile_kernel_gw8.py --work "$WORK" --jobs "$(nproc)"
+        run: python3 scripts/gw8/compile_kernel.py --work "$WORK" --jobs "$(nproc)"
 
       - name: Package, sign and verify boot
         env:

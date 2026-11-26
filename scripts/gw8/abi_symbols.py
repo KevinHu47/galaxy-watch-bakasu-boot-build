@@ -10,10 +10,13 @@ from __future__ import annotations
 import ast
 import configparser
 import re
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from common import sha256, write_json
-from prepare_kernel import read_config
+from kernel_prepare import read_config
 
 
 class BuildDefinition:

@@ -10,9 +10,9 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from source_archives_gw8 import merge_archives
-from prepare_kernel_gw8 import build_settings
-from compile_kernel_gw8 import build_environment
+from gw8.source_archives import merge_archives
+from gw8.prepare_kernel import build_settings
+from gw8.compile_kernel import build_environment
 
 
 def archive(files):
@@ -141,10 +141,10 @@ class Gw8Tests(unittest.TestCase):
 
     def test_gw8_workflow_uses_its_own_sources_preparation_and_compilation(self):
         repo = Path(__file__).resolve().parents[1]
-        workflow = (repo / '.github/workflows/build-boot-gw8.yml').read_text()
-        for filename in ('source_archives_gw8.py', 'prepare_kernel_gw8.py', 'compile_kernel_gw8.py'):
+        workflow = (repo / '.github/workflows/build-boot-gw8.yml').read_text(encoding='utf-8')
+        for filename in ('gw8/source_archives.py', 'gw8/prepare_kernel.py', 'gw8/compile_kernel.py'):
             self.assertIn(filename, workflow)
-        self.assertNotIn('python3 scripts/compile_kernel.py', workflow)
+        self.assertNotIn('python3 scripts/gw7/compile_kernel.py', workflow)
         self.assertIn('--output "$WORK/src"', workflow)
         self.assertIn('gw8-build', workflow)
         self.assertIn('/tmp/gw8-build', workflow)

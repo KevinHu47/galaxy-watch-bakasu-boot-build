@@ -10,11 +10,14 @@ import argparse
 import json
 import os
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import write_json
 from kernel_release import release_settings
-from prepare_kernel import (add_hooks, install_bakasu, prepare_config, prepare_toolchain,
+from kernel_prepare import (add_hooks, install_bakasu, prepare_config, prepare_toolchain,
                             read_assignments, read_config)
 
 
@@ -44,9 +47,9 @@ def build_settings(source: Path, stock: dict, stock_config: Path, source_manifes
     if not (external_modules / 'sgpu/Kconfig').is_file():
         raise ValueError('GW8 external module Kconfig files are missing')
     environment = {
-        'KCONFIG_EXT_PREFIX': os.path.relpath(board, source) + '/',
-        'KCONFIG_EXT_SOC_PREFIX': os.path.relpath(soc_dir, source) + '/',
-        'KCONFIG_EXT_MODULES_PREFIX': os.path.relpath(external_modules, source) + '/',
+        'KCONFIG_EXT_PREFIX': os.path.relpath(board, source).replace(os.sep, '/') + '/',
+        'KCONFIG_EXT_SOC_PREFIX': os.path.relpath(soc_dir, source).replace(os.sep, '/') + '/',
+        'KCONFIG_EXT_MODULES_PREFIX': os.path.relpath(external_modules, source).replace(os.sep, '/') + '/',
     }
     manifest = json.loads(source_manifest.read_text())
     fragments = [row['path'] for package in manifest['packages']
