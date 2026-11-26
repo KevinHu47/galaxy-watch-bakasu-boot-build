@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import shutil
+import tarfile
 from pathlib import Path
 
 from common import sha256, write_json
 
 
-def compress_boot(source: Path, destination: Path) -> None:
+def compressed_boot(source: Path) -> bytes:
     import lz4.frame
 
     original = source.read_bytes()
@@ -20,8 +22,26 @@ def compress_boot(source: Path, destination: Path) -> None:
         content_checksum=True, block_checksum=False, store_size=True,
     )
     if lz4.frame.decompress(compressed) != original:
-        raise ValueError(f'{destination.name} does not decompress to {source.name}')
-    destination.write_bytes(compressed)
+        raise ValueError(f'{source.name}.lz4 does not decompress to {source.name}')
+    return compressed
+
+
+def compress_boot(source: Path, destination: Path) -> None:
+    """Write a standalone LZ4 stream for callers that need one temporarily."""
+    destination.write_bytes(compressed_boot(source))
+
+
+def archive_boot_lz4(source: Path, destination: Path) -> None:
+    """Put the verified LZ4 stream in a tar archive without publishing the stream itself."""
+    compressed = compressed_boot(source)
+    entry = tarfile.TarInfo(f'{source.name}.lz4')
+    entry.size = len(compressed)
+    entry.mode = 0o644
+    entry.mtime = 0
+    entry.uid = entry.gid = 0
+    entry.uname = entry.gname = ''
+    with tarfile.open(destination, mode='w') as archive:
+        archive.addfile(entry, io.BytesIO(compressed))
 
 
 def verified_boot_report(source: Path, manifest: Path) -> dict | None:
@@ -74,7 +94,8 @@ def collect(work: Path, destination: Path, summary: Path | None = None):
     for name in ('boot.img', 'boot-unsign.img'):
         if name not in images:
             (destination / name).unlink(missing_ok=True)
-            (destination / f'{name}.lz4').unlink(missing_ok=True)
+        (destination / f'{name}.lz4').unlink(missing_ok=True)
+        (destination / f'{name}.lz4.tar').unlink(missing_ok=True)
     used_manifests = {name for _, name, _ in images.values()}
     for name in (manifest_name, companion_manifest_name):
         if name not in used_manifests:
@@ -87,10 +108,13 @@ def collect(work: Path, destination: Path, summary: Path | None = None):
     for name, (source, report_name, report) in images.items():
         published_boot = destination / name
         shutil.copyfile(source, published_boot)
-        compress_boot(published_boot, destination / f'{name}.lz4')
         report['output'] = name
         write_json(destination / report_name, report)
         text.append(f'- `{name}` SHA-256: `{sha256(published_boot)}`')
+        if mode == 'signed' and name == 'boot.img':
+            archive = destination / 'boot.img.lz4.tar'
+            archive_boot_lz4(published_boot, archive)
+            text.append(f'- `{archive.name}` SHA-256: `{sha256(archive)}`')
     if not images:
         text.append('- boot SHA-256: `not produced`')
     text.append('')
