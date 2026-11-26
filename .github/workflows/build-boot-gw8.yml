@@ -148,7 +148,7 @@ jobs:
         if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ format('gw8-{0}', steps.results.outputs.artifact_name || github.run_id) }}
+          name: ${{ format('gw8_{0}', steps.results.outputs.artifact_name || format('build-reports-{0}', github.run_id)) }}
           path: dist/gw8/
           if-no-files-found: warn
           compression-level: 6

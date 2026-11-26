@@ -142,6 +142,7 @@ class Gw8Tests(unittest.TestCase):
     def test_gw8_workflow_uses_its_own_sources_preparation_and_compilation(self):
         repo = Path(__file__).resolve().parents[1]
         workflow = (repo / '.github/workflows/build-boot-gw8.yml').read_text(encoding='utf-8')
+        gw7_workflow = (repo / '.github/workflows/build-boot-gw7.yml').read_text(encoding='utf-8')
         for filename in ('gw8/source_archives.py', 'gw8/prepare_kernel.py', 'gw8/compile_kernel.py'):
             self.assertIn(filename, workflow)
         self.assertNotIn('python3 scripts/gw7/compile_kernel.py', workflow)
@@ -149,6 +150,10 @@ class Gw8Tests(unittest.TestCase):
         self.assertIn('gw8-build', workflow)
         self.assertIn('/tmp/gw8-build', workflow)
         self.assertIn('dist/gw8/', workflow)
+        self.assertIn("format('gw8_{0}'", workflow)
+        self.assertIn("format('build-reports-{0}'", workflow)
+        self.assertIn("format('gw7_{0}'", gw7_workflow)
+        self.assertIn("format('build-reports-{0}'", gw7_workflow)
         # Generic boot packaging and module trust remain shared unchanged.
         self.assertIn('python3 scripts/boot_image.py pack', workflow)
         self.assertNotIn('make_vbmeta_image', workflow)

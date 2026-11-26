@@ -220,13 +220,13 @@ BZF4-update.zip
 完成后从该次运行的 **Artifacts** 下载。默认签名构建的压缩包名称不带签名标记：
 
 ```text
-gw-boot-<BakaSU commit前12位>-<run id>.zip
+gw7_boot-<BakaSU commit前12位>-<run id>.zip
 ```
 
 勾选「不签名」时，压缩包名称带 `unsign`：
 
 ```text
-gw-boot-<BakaSU commit前12位>-unsign-<run id>.zip
+gw7_boot-<BakaSU commit前12位>-unsign-<run id>.zip
 ```
 
 其中包括：
