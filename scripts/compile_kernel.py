@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 from common import sha256, write_json
-from kernel_release import configure_release_files
+from kernel_release import configure_release_files, localversion_residual
 from module_trust import verify_module_trust
 from prepare_kernel import read_config
 
@@ -64,24 +64,52 @@ def main():
                 'BRANCH': settings['branch'], 'KMI_GENERATION': settings['kmi_generation'],
                 'TARGET_BUILD_VARIANT': settings['target_build_variant'], 'TARGET_SOC': settings['target_soc'],
                 'KCFLAGS': '-D__ANDROID_COMMON_KERNEL__'})
+    # The downloaded Samsung source lives below this checkout in the normal
+    # workflow. Prevent setlocalversion from treating the workflow commit as
+    # the kernel's SCM suffix.
+    env['GIT_CEILING_DIRECTORIES'] = str(work.resolve())
     for key in ('BUILD_NUMBER', 'KBUILD_OUTPUT', 'KCONFIG_CONFIG', 'LOCALVERSION', 'TARGET_PRODUCT'):
         env.pop(key, None)
-    env['LOCALVERSION'] = settings['release_suffix']
-    configure_release_files(source, output, settings)
     command = ['make', '-C', str(source), f'O={output}', 'ARCH=arm64', 'LLVM=1', 'LLVM_IAS=1']
-    subprocess.run([*command, 'olddefconfig'], env=env, check=True)
-    report = check_config(work / 'stock/stock.config', output / '.config', prepare['config_overrides'])
-    write_json(work / 'config-check.json', report)
-    if not report['passed']:
-        raise ValueError('Required root/stock ABI settings changed; see config-check.json')
-    if report['other_changes']:
-        print('Additional Kconfig changes are recorded in config-check.json:',
-              ', '.join(report['other_changes']), flush=True)
-    subprocess.run([*command, 'prepare'], env=env, check=True)
-    release = subprocess.check_output([*command, '--no-print-directory', '-s', 'kernelrelease'],
-                                      env=env, text=True).strip().splitlines()[-1]
-    if release != settings['kernel_release']:
-        raise ValueError(f'Built kernel release {release} differs from original {settings["kernel_release"]}')
+    release_probe = None
+    release_detection = None
+    # First let the source's own setlocalversion provide any Android/KMI
+    # fragment. If that is insufficient, add the input-derived prepend stamp
+    # and probe again. The final LOCALVERSION is only the missing suffix.
+    attempts = [False] + ([True] if settings.get('release_prepend') else [])
+    for include_prepend in attempts:
+        configure_release_files(source, output, settings, include_prepend=include_prepend)
+        env['LOCALVERSION'] = ''
+        subprocess.run([*command, 'olddefconfig'], env=env, check=True)
+        report = check_config(work / 'stock/stock.config', output / '.config', prepare['config_overrides'])
+        write_json(work / 'config-check.json', report)
+        if not report['passed']:
+            raise ValueError('Required root/stock ABI settings changed; see config-check.json')
+        if report['other_changes']:
+            print('Additional Kconfig changes are recorded in config-check.json:',
+                  ', '.join(report['other_changes']), flush=True)
+        subprocess.run([*command, 'prepare'], env=env, check=True)
+        probe = subprocess.check_output([*command, '--no-print-directory', '-s', 'kernelrelease'],
+                                        env=env, text=True).strip().splitlines()[-1]
+        try:
+            residual = localversion_residual(settings['kernel_source_version'],
+                                             settings['kernel_release'], probe)
+        except ValueError:
+            release_probe = probe
+            continue
+        env['LOCALVERSION'] = residual
+        subprocess.run([*command, 'prepare'], env=env, check=True)
+        release = subprocess.check_output([*command, '--no-print-directory', '-s', 'kernelrelease'],
+                                          env=env, text=True).strip().splitlines()[-1]
+        if release == settings['kernel_release']:
+            release_detection = {'probe': probe, 'include_prepend': include_prepend,
+                                 'localversion': residual,
+                                 'git_ceiling_directories': env['GIT_CEILING_DIRECTORIES']}
+            break
+        release_probe = release
+    else:
+        raise ValueError('Built kernel release differs from original: '
+                         f'expected={settings["kernel_release"]!r}, observed={release_probe!r}')
     subprocess.run([*command, f'-j{max(1, args.jobs)}', 'Image', 'modules'], env=env, check=True)
     image = output / 'arch/arm64/boot/Image'
     if not image.is_file():
@@ -93,7 +121,8 @@ def main():
                                 work / 'module-trust.json')
     write_json(work / 'compile.json', {'kernel_release': release, 'image_sha256': sha256(image),
                                      'image_bytes': image.stat().st_size, 'bakasu': prepare['bakasu'],
-                                     'has_bakasu_symbols': True, 'original_module_trust_verified': trust['passed']})
+                                     'has_bakasu_symbols': True, 'original_module_trust_verified': trust['passed'],
+                                     'release_detection': release_detection})
     print(f'Compiled Image: {sha256(image)}', flush=True)
 
 

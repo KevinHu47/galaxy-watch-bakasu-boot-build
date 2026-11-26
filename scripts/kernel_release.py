@@ -13,6 +13,25 @@ from pathlib import Path
 STAMP_FILE = 'localversion.gw-boot'
 
 
+def localversion_residual(version: str, expected: str, observed: str) -> str:
+    """Return the extra LOCALVERSION needed after an observed probe.
+
+    The probe is run with an empty LOCALVERSION and no inherited Git tree.
+    This lets the source's own ``setlocalversion`` implementation decide
+    whether it already supplies Android/KMI or firmware fragments. We only
+    append a residual fragment when the observed string is a prefix of the
+    requested release; no firmware/version token is hard-coded here.
+    """
+    if not expected.startswith(version) or not observed.startswith(version):
+        raise ValueError(f'Kernel release base differs: expected={expected!r}, observed={observed!r}')
+    expected_suffix = expected[len(version):]
+    observed_suffix = observed[len(version):]
+    if not expected_suffix.startswith(observed_suffix):
+        raise ValueError('Kernel release probe contains a fragment in the wrong order: '
+                         f'expected={expected!r}, observed={observed!r}')
+    return expected_suffix[len(observed_suffix):]
+
+
 def release_settings(source: Path, version: str, release: str, config: dict[str, str]) -> dict:
     if not re.fullmatch(r'[A-Za-z0-9_.+\-]+', release):
         raise ValueError('Invalid original kernel release string')
@@ -39,11 +58,12 @@ def release_settings(source: Path, version: str, release: str, config: dict[str,
             'source_localversion': source_version, 'config_localversion': config_version}
 
 
-def configure_release_files(source: Path, output: Path, settings: dict) -> None:
+def configure_release_files(source: Path, output: Path, settings: dict,
+                            *, include_prepend: bool = True) -> None:
     """Write only build stamp metadata; preserve the recovered kernel config."""
     output.mkdir(parents=True, exist_ok=True)
     stamp = output / STAMP_FILE
-    prepend = settings.get('release_prepend', '')
+    prepend = settings.get('release_prepend', '') if include_prepend else ''
     if prepend:
         stamp.write_text(prepend + '\n')
     else:
