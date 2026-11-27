@@ -231,9 +231,9 @@ gw7_boot-<BakaSU commit前12位>-unsign-<run id>.zip
 
 其中包括：
 
-- 签名构建会在同一个压缩包中提供 `boot.img`、`boot.img.lz4`、`boot-unsign.img` 和 `boot-unsign.img.lz4`。两种镜像使用同一次编译生成的内核，附带的未签名版有独立的 `boot-unsign-manifest.json` 校验报告。
-- 勾选「不签名」时，镜像文件只有 `boot-unsign.img` 和 `boot-unsign.img.lz4`。
-- LZ4 版本使用 1 MiB 独立块、内容校验和及原始大小字段。生成后解压核对与对应镜像逐字节一致，所有镜像文件均列入 `SHA256SUMS`。
+- 签名构建会在同一个压缩包中提供 `boot.img`、`boot.img.lz4.tar` 和 `boot-unsign.img`。tar 内含经过逐字节核对的 `boot.img.lz4`，不单独发布 `.lz4` 文件；附带的未签名版有独立的 `boot-unsign-manifest.json` 校验报告。
+- 勾选「不签名」时只提供 `boot-unsign.img`，不会生成 tar 或 LZ4 文件。
+- LZ4 内容使用 1 MiB 独立块、内容校验和及原始大小字段，生成后会解压核对并将镜像和 tar 列入 `SHA256SUMS`。
 - `Image`、`kernel.config`、`Module.symvers`、`System.map`：编译结果及核查材料。
 - `bakasu.json`、`prepare.json`、`compile.json`、`module-trust.json`、`boot-manifest.json`、`config-check.json`、`source-manifest.json`：来源、完整 BakaSU commit、工具链、配置、原厂模块信任和镜像校验记录。
 - `SHA256SUMS`、`BUILD.txt`：文件哈希与摘要。
